@@ -12,7 +12,7 @@ export class DomStrategyLocator {
 
 export class TableStrategy {
   getScrollElement(element) {
-    return element.parentNode.parentNode;
+    return element.parentNode;
   }
 
   getWrapperElement(element) {
@@ -40,10 +40,10 @@ export class DivStrategy {
   }
 
   moveViewFirst(view, scrollElement) {
-    insertBeforeNode(view, scrollElement, scrollElement.childNodes[1]);
+    insertBeforeNode(view, scrollElement, scrollElement.childNodes[2]);
   }
 
   moveViewLast(view, scrollElement, childrenLength) {
-    insertBeforeNode(view, scrollElement, scrollElement.children[childrenLength]);
+    insertBeforeNode(view, scrollElement, scrollElement.children[childrenLength + 1]);
   }
 }

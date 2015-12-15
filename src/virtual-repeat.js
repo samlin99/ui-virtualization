@@ -54,12 +54,14 @@ export class VirtualRepeat {
     this.currentY = 0;
     this.previousY = 0;
     this.first = 0;
-    this.previousFirst = 0;
+    this.bufferSize = 3;
+    this.previousFirst = this.bufferSize - 1;
     this.numberOfDomElements = 0;
     this.indicatorMinHeight = 15;
     this.sourceExpression = getItemsSourceExpression(this.instruction, 'virtual-repeat.for');
     this.isOneTime = isOneTime(this.sourceExpression);
     this.viewsRequireLifecycle = viewsRequireLifecycle(viewFactory);
+    this.prevScrollTop = 0;
   }
 
   attached(){
@@ -71,8 +73,10 @@ export class VirtualRepeat {
     this.virtualScrollInner = this.domStrategy.getScrollElement(element);
 
     this.virtualScroll = this.domStrategy.getWrapperElement(element);
-    this.virtualScroll.style.overflow = 'hidden';
+    //this.virtualScroll.style.overflow = 'hidden';
     this.virtualScroll.tabIndex = '-1';
+    this.topBuffer = document.getElementById("scrolling-top-buffer");
+    this.bottomBuffer = document.getElementById("scrolling-bottom-buffer");
 
     this.scrollHandler.initialize(this.virtualScroll,  (deltaY, useEase) => {
       this.useEase = useEase;
@@ -83,7 +87,8 @@ export class VirtualRepeat {
     });
 
     this.itemsChanged();
-    this.scroll();
+    this.scroll2();
+    //this.scroll();
   }
 
   bind(bindingContext, overrideContext){
@@ -164,6 +169,49 @@ export class VirtualRepeat {
     }
 
     this._calcScrollViewHeight();
+  }
+
+  scroll2() {
+      let scrollTop = this.virtualScroll.scrollTop;
+
+      console.log('first', this.first);
+      console.log('previousFirst', this.previousFirst);
+
+      this.first = Math.round(scrollTop / 95);
+      if(this.first > this.previousFirst && this.first >= this.bufferSize && this.first < this.items.length - 11) {
+        this.prevScrollTop = this.scrollTop;
+        this.first = this.previousFirst + 1;
+        this.previousFirst = this.first;
+        this._rebindAndMoveToBottom();
+
+        let topBufferHeight = parseInt(this.topBuffer.style.height, 10);
+        let newTopBufferHeight = topBufferHeight + 95;
+
+        let bottomBufferHeight = parseInt(this.bottomBuffer.style.height, 10);
+        let newBottomBufferHeight = bottomBufferHeight - 95;
+
+        this.topBuffer.setAttribute("style","height:" + newTopBufferHeight + "px");
+        this.bottomBuffer.setAttribute("style","height:" + newBottomBufferHeight + "px");
+      } else if (this.first < this.previousFirst && this.first >= this.bufferSize){
+        this.prevScrollTop = this.scrollTop;
+        this.first = this.previousFirst - 1;
+        this.previousFirst = this.first;
+        console.log('move', this.first);
+        this._rebindAndMoveToTop();
+
+        let topBufferHeight = parseInt(this.topBuffer.style.height, 10);
+        let newTopBufferHeight = topBufferHeight - 95;
+
+        let bottomBufferHeight = parseInt(this.bottomBuffer.style.height, 10);
+        let newBottomBufferHeight = bottomBufferHeight + 95;
+
+        this.topBuffer.setAttribute("style","height:" + newTopBufferHeight + "px");
+        this.bottomBuffer.setAttribute("style","height:" + newBottomBufferHeight + "px");
+      }
+
+      if(parseInt(this.bottomBuffer.style.height, 10) > 0) {
+        requestAnimationFrame(() => this.scroll2());
+      }
   }
 
   scroll() {
@@ -333,13 +381,11 @@ export class VirtualRepeat {
     let items = this.items;
     let virtualScrollInner = this.virtualScrollInner;
     let view = viewSlot.children[0];
-    let index = first + childrenLength - 1;
+    let index = first + childrenLength;
     updateOverrideContext(view.overrideContext, index, items.length);
     view.bindingContext[this.local] = items[index];
     viewSlot.children.push(viewSlot.children.shift());
     this.domStrategy.moveViewLast(view, virtualScrollInner, childrenLength);
-    let marginTop = -this.currentY + "px";
-    virtualScrollInner.style.marginTop = marginTop;
   }
 
   _rebindAndMoveToTop() {
@@ -354,8 +400,6 @@ export class VirtualRepeat {
       updateOverrideContext(view.overrideContext, first, items.length);
       viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
       this.domStrategy.moveViewFirst(view, virtualScrollInner);
-      let marginTop = -this.currentY + "px";
-      virtualScrollInner.style.marginTop = marginTop;
     }
   }
 
@@ -364,9 +408,11 @@ export class VirtualRepeat {
       return;
     }
     let listItems = this.virtualScrollInner.children;
-    this.itemHeight = calcOuterHeight(listItems[0]);
-    this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);
-    this.numberOfDomElements = Math.ceil(this.virtualScrollHeight / this.itemHeight) + 1;
+    //this.itemHeight = calcOuterHeight(listItems[0]);
+    //this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);
+    //this.numberOfDomElements = Math.ceil(this.virtualScrollHeight / this.itemHeight) + 1;
+    this.itemHeight = 95;
+    this.numberOfDomElements = 11;
   }
 
   _observeInnerCollection() {
