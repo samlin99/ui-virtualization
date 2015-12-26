@@ -11,12 +11,12 @@ export class DomStrategyLocator {
 }
 
 export class TableStrategy {
-  getScrollElement(element) {
+  getScrollList(element) {
     return element.parentNode;
   }
 
-  getWrapperElement(element) {
-    return this.getScrollElement(element).parentElement;
+  getScrollContainer(element) {
+    return this.getScrollList(element).parentElement;
   }
 
   moveViewFirst(view, scrollElement) {
@@ -31,12 +31,12 @@ export class TableStrategy {
 }
 
 export class DivStrategy {
-  getScrollElement(element) {
+  getScrollList(element) {
     return element.parentNode;
   }
 
-  getWrapperElement(element) {
-    return this.getScrollElement(element).parentElement;
+  getScrollContainer(element) {
+    return this.getScrollList(element).parentElement;
   }
 
   moveViewFirst(view, scrollElement) {
@@ -45,5 +45,19 @@ export class DivStrategy {
 
   moveViewLast(view, scrollElement, childrenLength) {
     insertBeforeNode(view, scrollElement, scrollElement.children[childrenLength + 1]);
+  }
+
+  createTopBufferElement(scrollList, element) {
+    let buffer = document.createElement('div');
+    buffer.setAttribute("style","height: 0px");
+    scrollList.insertBefore(buffer, element);
+    return buffer;
+  }
+
+  createBottomBufferElement(scrollList, element) {
+    let buffer = document.createElement('div');
+    buffer.setAttribute("style","height: 0px");
+    element.parentNode.insertBefore(buffer, element.nextSibling);
+    return buffer;
   }
 }

@@ -55,7 +55,7 @@ export class VirtualRepeat {
     this.previousY = 0;
     this.first = 0;
     this.bufferSize = 3;
-    this.previousFirst = this.bufferSize - 1;
+    this.previousFirst = 0;
     this.numberOfDomElements = 0;
     this.indicatorMinHeight = 15;
     this.sourceExpression = getItemsSourceExpression(this.instruction, 'virtual-repeat.for');
@@ -70,25 +70,27 @@ export class VirtualRepeat {
     let element = this.element;
 
     this.domStrategy = this.domStrategyLocator.getStrategy(element);
-    this.virtualScrollInner = this.domStrategy.getScrollElement(element);
+    this.scrollList = this.domStrategy.getScrollList(element);
 
-    this.virtualScroll = this.domStrategy.getWrapperElement(element);
-    //this.virtualScroll.style.overflow = 'hidden';
-    this.virtualScroll.tabIndex = '-1';
-    this.topBuffer = document.getElementById("scrolling-top-buffer");
-    this.bottomBuffer = document.getElementById("scrolling-bottom-buffer");
+    this.scrollContainer = this.domStrategy.getScrollContainer(element);
+    //this.scrollContainer.style.overflow = 'hidden';
+    //this.scrollContainer.tabIndex = '-1';
 
-    this.scrollHandler.initialize(this.virtualScroll,  (deltaY, useEase) => {
+    this.topBuffer = this.domStrategy.createTopBufferElement(this.scrollList, element);
+    this.bottomBuffer = this.domStrategy.createBottomBufferElement(this.scrollList, element);
+    this.topBufferHeight = 0;
+    this.bottomBufferHeight = 0;
+
+    /*this.scrollHandler.initialize(this.scrollContainer,  (deltaY, useEase) => {
       this.useEase = useEase;
       this.targetY += deltaY;
       this.targetY = Math.max(-this.scrollViewHeight, this.targetY);
       this.targetY = Math.min(0, this.targetY);
       return this.targetY;
-    });
+    });*/
 
     this.itemsChanged();
     this.scroll2();
-    //this.scroll();
   }
 
   bind(bindingContext, overrideContext){
@@ -105,10 +107,10 @@ export class VirtualRepeat {
   detached() {
     this.isAttached = false;
     this._removeScrollIndicator();
-    this.virtualScrollInner = null;
-    this.virtualScroll = null;
+    this.scrollList = null;
+    this.scrollContainer = null;
     this.numberOfDomElements = null;
-    this.virtualScrollHeight = null;
+    this.scrollContainerHeight = null;
     this.targetY = null;
     this.previousY = null;
     this.itemHeight = null;
@@ -129,7 +131,7 @@ export class VirtualRepeat {
       return;
     }
 
-    this._createScrollIndicator();
+    //this._createScrollIndicator();
 
     let items = this.items;
     this.strategy = this.strategyLocator.getStrategy(items);
@@ -155,8 +157,8 @@ export class VirtualRepeat {
       childrenLength = children.length,
       overrideContext, view, addIndex;
 
-    this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);
-    this.numberOfDomElements = Math.ceil(this.virtualScrollHeight / this.itemHeight) + 1;
+    this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
+    this.numberOfDomElements = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
 
     if(this.numberOfDomElements > childrenLength){
       addIndex = children[childrenLength - 1].overrideContext.$index + 1;
@@ -172,46 +174,47 @@ export class VirtualRepeat {
   }
 
   scroll2() {
-      let scrollTop = this.virtualScroll.scrollTop;
+      let scrollTop = this.scrollContainer.scrollTop;
+      this.first = Math.round(scrollTop / this.itemHeight);
 
-      console.log('first', this.first);
-      console.log('previousFirst', this.previousFirst);
+      let isAtBottom = this.previousFirst + 1 > this.items.length - this.elementsInView - this.bufferSize;
+      let isTopElementScrolledOutside = this.first > this.previousFirst;
+      let isBufferScrolled = this.first > this.bufferSize;
+      let isBottomBufferScrolled = this.first + this.elementsInView <= this.items.length - this.bufferSize;
 
-      this.first = Math.round(scrollTop / 95);
-      if(this.first > this.previousFirst && this.first >= this.bufferSize && this.first < this.items.length - 11) {
-        this.prevScrollTop = this.scrollTop;
-        this.first = this.previousFirst + 1;
-        this.previousFirst = this.first;
+      if(isTopElementScrolledOutside && isBufferScrolled && !isAtBottom) {
+        // is skipping views?
+        if(this.first - this.previousFirst > 1) {
+          console.log('skipping', this.first, this.previousFirst);
+          this.first = this.previousFirst + 1;
+        }
+
         this._rebindAndMoveToBottom();
 
-        let topBufferHeight = parseInt(this.topBuffer.style.height, 10);
-        let newTopBufferHeight = topBufferHeight + 95;
+        this.topBufferHeight = this.topBufferHeight + this.itemHeight;
+        this.bottomBufferHeight = this.bottomBufferHeight - this.itemHeight;
 
-        let bottomBufferHeight = parseInt(this.bottomBuffer.style.height, 10);
-        let newBottomBufferHeight = bottomBufferHeight - 95;
+        this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
+        this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
+      } else if (this.first < this.previousFirst && isBottomBufferScrolled && isBufferScrolled){
+        // is skipping views?
+        if(this.previousFirst - this.first > 1) {
+          console.log('skipping', this.first, this.previousFirst);
+          this.first = this.previousFirst - 1;
+        }
 
-        this.topBuffer.setAttribute("style","height:" + newTopBufferHeight + "px");
-        this.bottomBuffer.setAttribute("style","height:" + newBottomBufferHeight + "px");
-      } else if (this.first < this.previousFirst && this.first >= this.bufferSize){
-        this.prevScrollTop = this.scrollTop;
-        this.first = this.previousFirst - 1;
-        this.previousFirst = this.first;
-        console.log('move', this.first);
         this._rebindAndMoveToTop();
 
-        let topBufferHeight = parseInt(this.topBuffer.style.height, 10);
-        let newTopBufferHeight = topBufferHeight - 95;
+        this.topBufferHeight = this.topBufferHeight - this.itemHeight;
+        this.bottomBufferHeight = this.bottomBufferHeight + this.itemHeight;
 
-        let bottomBufferHeight = parseInt(this.bottomBuffer.style.height, 10);
-        let newBottomBufferHeight = bottomBufferHeight + 95;
-
-        this.topBuffer.setAttribute("style","height:" + newTopBufferHeight + "px");
-        this.bottomBuffer.setAttribute("style","height:" + newBottomBufferHeight + "px");
+        this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
+        this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
       }
 
-      if(parseInt(this.bottomBuffer.style.height, 10) > 0) {
-        requestAnimationFrame(() => this.scroll2());
-      }
+      this.previousFirst = this.first;
+
+      requestAnimationFrame(() => this.scroll2());
   }
 
   scroll() {
@@ -262,8 +265,8 @@ export class VirtualRepeat {
 
     var scrolledPercentage, indicatorTranslateStyle;
 
-    scrolledPercentage = -this.currentY / (this.items.length * this.itemHeight - this.virtualScrollHeight);
-    this.indicatorY = (this.virtualScrollHeight - this.indicatorHeight) * scrolledPercentage;
+    scrolledPercentage = -this.currentY / (this.items.length * this.itemHeight - this.scrollContainerHeight);
+    this.indicatorY = (this.scrollContainerHeight - this.indicatorHeight) * scrolledPercentage;
 
     indicatorTranslateStyle = "translate3d(0px," + this.indicatorY + "px,0px)";
     this.indicator.style.webkitTransform = indicatorTranslateStyle;
@@ -298,10 +301,10 @@ export class VirtualRepeat {
 
   _animateViews() {
     let translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
-    let virtualScrollInner = this.virtualScrollInner;
-    virtualScrollInner.style.webkitTransform = translateStyle;
-    virtualScrollInner.style.msTransform = translateStyle;
-    virtualScrollInner.style.transform = translateStyle;
+    let scrollList = this.scrollList;
+    scrollList.style.webkitTransform = translateStyle;
+    scrollList.style.msTransform = translateStyle;
+    scrollList.style.transform = translateStyle;
   }
 
   _isScrollingDown(first, previousFirst, items) {
@@ -327,7 +330,7 @@ export class VirtualRepeat {
   }
 
   _calcScrollViewHeight(){
-    this.scrollViewHeight = (this.items.length * this.itemHeight) - this.virtualScrollHeight;
+    this.scrollViewHeight = (this.items.length * this.itemHeight) - this.scrollContainerHeight;
   }
 
   _calcIndicatorHeight(){
@@ -335,7 +338,7 @@ export class VirtualRepeat {
       return;
     }
 
-    this.indicatorHeight = this.virtualScrollHeight * (this.virtualScrollHeight / this.scrollViewHeight);
+    this.indicatorHeight = this.scrollContainerHeight * (this.scrollContainerHeight / this.scrollViewHeight);
     if(this.indicatorHeight < this.indicatorMinHeight){
       this.indicatorHeight = this.indicatorMinHeight;
     }
@@ -356,7 +359,7 @@ export class VirtualRepeat {
     var indicator;
     indicator = this.indicator = document.createElement('div');
 
-    this.virtualScroll.appendChild(this.indicator);
+    this.scrollContainer.appendChild(this.indicator);
 
     indicator.classList.add('au-scroll-indicator');
     indicator.style.backgroundColor = '#cccccc';
@@ -368,8 +371,8 @@ export class VirtualRepeat {
   }
 
   _removeScrollIndicator() {
-    if (this.virtualScroll && this.indicator) {
-      this.virtualScroll.removeChild(this.indicator);
+    if (this.scrollContainer && this.indicator) {
+      this.scrollContainer.removeChild(this.indicator);
       this.indicator = null;
     }
   }
@@ -379,13 +382,13 @@ export class VirtualRepeat {
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
-    let virtualScrollInner = this.virtualScrollInner;
+    let scrollList = this.scrollList;
     let view = viewSlot.children[0];
-    let index = first + childrenLength;
+    let index = first + childrenLength - this.bufferSize - 1;
     updateOverrideContext(view.overrideContext, index, items.length);
     view.bindingContext[this.local] = items[index];
     viewSlot.children.push(viewSlot.children.shift());
-    this.domStrategy.moveViewLast(view, virtualScrollInner, childrenLength);
+    this.domStrategy.moveViewLast(view, scrollList, childrenLength);
   }
 
   _rebindAndMoveToTop() {
@@ -393,26 +396,25 @@ export class VirtualRepeat {
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
-    let virtualScrollInner = this.virtualScrollInner;
+    let scrollList = this.scrollList;
     let view = viewSlot.children[childrenLength - 1];
-    if(view) {
-      view.bindingContext[this.local] = items[first];
-      updateOverrideContext(view.overrideContext, first, items.length);
-      viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
-      this.domStrategy.moveViewFirst(view, virtualScrollInner);
-    }
+    view.bindingContext[this.local] = items[first - this.bufferSize - 1];
+    updateOverrideContext(view.overrideContext, first, items.length);
+    viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
+    this.domStrategy.moveViewFirst(view, scrollList);
   }
 
   _calcInitialHeights() {
     if (this.numberOfDomElements > 0) {
       return;
     }
-    let listItems = this.virtualScrollInner.children;
-    //this.itemHeight = calcOuterHeight(listItems[0]);
-    //this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);
-    //this.numberOfDomElements = Math.ceil(this.virtualScrollHeight / this.itemHeight) + 1;
-    this.itemHeight = 95;
-    this.numberOfDomElements = 11;
+    let listItems = this.scrollList.children;
+    this.itemHeight = calcOuterHeight(listItems[1]); // TODO: 0 or 1 depending on scroll strategy
+    this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
+    this.elementsInView = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
+    this.numberOfDomElements = this.elementsInView + this.bufferSize + this.bufferSize;
+    this.bottomBufferHeight = this.itemHeight * this.items.length - this.itemHeight * this.numberOfDomElements;
+    this.bottomBuffer.setAttribute("style","height: " + this.bottomBufferHeight + "px");
   }
 
   _observeInnerCollection() {

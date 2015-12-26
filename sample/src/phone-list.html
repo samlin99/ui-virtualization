@@ -1,7 +1,6 @@
 <template>
     <div class="contact-list" style="overflow: scroll;">
         <div if.bind="isVisible">
-           <div id="scrolling-top-buffer" style="height: 0px"></div>
             <div virtual-repeat.for="item of objectArray" class="contact-list-item ${item.name}">
               <div class="contact-item">
                   <div class="avatar" click.delegate="click()" css="background-color: ${item.color}">${item.firstLetter}</div>
@@ -13,8 +12,7 @@
                       <strong>Country:</strong> ${item.country} <br />
                   </div>
               </div>
-            </div>
-            <div id="scrolling-bottom-buffer" style="height: 8170px"></div>
+            </div>  
         </div>
     </div>
     <div class="array-actions">
