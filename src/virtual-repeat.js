@@ -54,7 +54,7 @@ export class VirtualRepeat {
     this.currentY = 0;
     this.previousY = 0;
     this.first = 0;
-    this.bufferSize = 3;
+    this.bufferSize = 10;
     this.previousFirst = 0;
     this.numberOfDomElements = 0;
     this.indicatorMinHeight = 15;
@@ -62,6 +62,7 @@ export class VirtualRepeat {
     this.isOneTime = isOneTime(this.sourceExpression);
     this.viewsRequireLifecycle = viewsRequireLifecycle(viewFactory);
     this.prevScrollTop = 0;
+    this.itemsSkipped = 0;
   }
 
   attached(){
@@ -174,18 +175,16 @@ export class VirtualRepeat {
   }
 
   scroll2() {
+
       let scrollTop = this.scrollContainer.scrollTop;
       this.first = Math.round(scrollTop / this.itemHeight);
-
-      let isAtBottom = this.previousFirst + 1 > this.items.length - this.elementsInView - this.bufferSize;
       let isTopElementScrolledOutside = this.first > this.previousFirst;
       let isBufferScrolled = this.first > this.bufferSize;
       let isBottomBufferScrolled = this.first + this.elementsInView <= this.items.length - this.bufferSize;
 
-      if(isTopElementScrolledOutside && isBufferScrolled && !isAtBottom) {
+      if(isTopElementScrolledOutside && isBufferScrolled && this.bottomBufferHeight > 0) {
         // is skipping views?
         if(this.first - this.previousFirst > 1) {
-          console.log('skipping', this.first, this.previousFirst);
           this.first = this.previousFirst + 1;
         }
 
@@ -196,10 +195,9 @@ export class VirtualRepeat {
 
         this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
         this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
-      } else if (this.first < this.previousFirst && isBottomBufferScrolled && isBufferScrolled){
+      } else if (this.first < this.previousFirst && isBottomBufferScrolled && this.topBufferHeight > 0){
         // is skipping views?
         if(this.previousFirst - this.first > 1) {
-          console.log('skipping', this.first, this.previousFirst);
           this.first = this.previousFirst - 1;
         }
 
@@ -399,6 +397,7 @@ export class VirtualRepeat {
     let scrollList = this.scrollList;
     let view = viewSlot.children[childrenLength - 1];
     view.bindingContext[this.local] = items[first - this.bufferSize - 1];
+    // TODO Optionally skip updating the override context for performance
     updateOverrideContext(view.overrideContext, first, items.length);
     viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
     this.domStrategy.moveViewFirst(view, scrollList);

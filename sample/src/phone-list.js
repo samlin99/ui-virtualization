@@ -3,7 +3,7 @@ export class PhoneList {
   constructor() {
     this.objectArray = [];
     this.objectArray2 = [];
-    this.numberOfItems = 100;
+    this.numberOfItems = 1000;
     this.isSelected = false;
     this.isVisible = true;
   }
