@@ -184,14 +184,20 @@ export class VirtualRepeat {
 
       if(isTopElementScrolledOutside && isBufferScrolled && this.bottomBufferHeight > 0) {
         // is skipping views?
-        if(this.first - this.previousFirst > 1) {
+        var delta = 1;
+        this.itemsSkipped = this.first - this.previousFirst;
+        console.log(this.itemsSkipped);
+        if(this.itemsSkipped > 1 && this.itemsSkipped < 20) {
           this.first = this.previousFirst + 1;
+        } else if(this.itemsSkipped >= 20) {
+          this.first = this.previousFirst + this.itemsSkipped - this.elementsInView;
+          delta = this.itemsSkipped - this.elementsInView;
         }
 
         this._rebindAndMoveToBottom();
 
-        this.topBufferHeight = this.topBufferHeight + this.itemHeight;
-        this.bottomBufferHeight = this.bottomBufferHeight - this.itemHeight;
+        this.topBufferHeight = this.topBufferHeight + this.itemHeight * delta;
+        this.bottomBufferHeight = this.bottomBufferHeight - this.itemHeight * delta;
 
         this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
         this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
