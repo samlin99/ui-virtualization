@@ -181,17 +181,16 @@ export class VirtualRepeat {
       let isTopElementScrolledOutside = this.first > this.previousFirst;
       let isBufferScrolled = this.first > this.bufferSize;
       let isBottomBufferScrolled = this.first + this.elementsInView <= this.items.length - this.bufferSize;
-
-      if(isTopElementScrolledOutside && isBufferScrolled && this.bottomBufferHeight > 0) {
+      if(isTopElementScrolledOutside && isBufferScrolled && (this.bottomBufferHeight > 0 || !this.isLastIndex)) {
+        this.isAtTop = false;
         // is skipping views?
-        var delta = 1;
+        let delta = 1;
         this.itemsSkipped = this.first - this.previousFirst;
-        console.log(this.itemsSkipped);
-        if(this.itemsSkipped > 1 && this.itemsSkipped < 20) {
+        if(this.itemsSkipped > 1 && this.itemsSkipped < this.numberOfDomElements * 2) {
           this.first = this.previousFirst + 1;
-        } else if(this.itemsSkipped >= 20) {
-          this.first = this.previousFirst + this.itemsSkipped - this.elementsInView;
-          delta = this.itemsSkipped - this.elementsInView;
+        } else if(this.itemsSkipped >= this.numberOfDomElements * 2) {
+          this.first = this.previousFirst + Math.round(this.itemsSkipped / 2)
+          delta = Math.round(this.itemsSkipped / 2);
         }
 
         this._rebindAndMoveToBottom();
@@ -199,21 +198,31 @@ export class VirtualRepeat {
         this.topBufferHeight = this.topBufferHeight + this.itemHeight * delta;
         this.bottomBufferHeight = this.bottomBufferHeight - this.itemHeight * delta;
 
-        this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
-        this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
-      } else if (this.first < this.previousFirst && isBottomBufferScrolled && this.topBufferHeight > 0){
+        if (this.bottomBufferHeight >= 0) {
+          this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
+          this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
+        }
+      } else if (this.first < this.previousFirst && isBottomBufferScrolled && (this.topBufferHeight >= 0 || !this.isAtTop)){
+        this.isLastIndex = false;
         // is skipping views?
-        if(this.previousFirst - this.first > 1) {
+        let delta = 1;
+        this.itemsSkipped = this.previousFirst - this.first;
+        if(this.itemsSkipped > 1 && this.itemsSkipped < this.numberOfDomElements * 2) {
           this.first = this.previousFirst - 1;
+        } else if(this.itemsSkipped >= this.numberOfDomElements * 2) {
+          this.first = this.previousFirst - Math.round(this.itemsSkipped / 2);
+          delta = Math.round(this.itemsSkipped / 2);
         }
 
         this._rebindAndMoveToTop();
 
-        this.topBufferHeight = this.topBufferHeight - this.itemHeight;
-        this.bottomBufferHeight = this.bottomBufferHeight + this.itemHeight;
+        this.topBufferHeight = this.topBufferHeight - this.itemHeight * delta;
+        this.bottomBufferHeight = this.bottomBufferHeight + this.itemHeight * delta;
 
-        this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
-        this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
+        if (this.topBufferHeight >= 0) {
+          this.topBuffer.setAttribute("style","height:" + this.topBufferHeight + "px");
+          this.bottomBuffer.setAttribute("style","height:" + this.bottomBufferHeight + "px");
+        }
       }
 
       this.previousFirst = this.first;
@@ -389,10 +398,13 @@ export class VirtualRepeat {
     let scrollList = this.scrollList;
     let view = viewSlot.children[0];
     let index = first + childrenLength - this.bufferSize - 1;
-    updateOverrideContext(view.overrideContext, index, items.length);
-    view.bindingContext[this.local] = items[index];
-    viewSlot.children.push(viewSlot.children.shift());
-    this.domStrategy.moveViewLast(view, scrollList, childrenLength);
+    if(!this.isLastIndex) {
+      updateOverrideContext(view.overrideContext, index, items.length);
+      view.bindingContext[this.local] = items[index];
+      viewSlot.children.push(viewSlot.children.shift());
+      this.domStrategy.moveViewLast(view, scrollList, childrenLength);
+    }
+    this.isLastIndex = index >= items.length - 1;
   }
 
   _rebindAndMoveToTop() {
@@ -402,11 +414,14 @@ export class VirtualRepeat {
     let items = this.items;
     let scrollList = this.scrollList;
     let view = viewSlot.children[childrenLength - 1];
-    view.bindingContext[this.local] = items[first - this.bufferSize - 1];
-    // TODO Optionally skip updating the override context for performance
-    updateOverrideContext(view.overrideContext, first, items.length);
-    viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
-    this.domStrategy.moveViewFirst(view, scrollList);
+    let index = first - this.bufferSize - 1;
+    if(!this.isAtTop) {
+      view.bindingContext[this.local] = items[index];
+      updateOverrideContext(view.overrideContext, first, items.length);
+      viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
+      this.domStrategy.moveViewFirst(view, scrollList);
+    }
+    this.isAtTop = index <= 0;
   }
 
   _calcInitialHeights() {
