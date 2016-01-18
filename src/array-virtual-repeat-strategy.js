@@ -56,9 +56,7 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
       let last = i === itemsLength - 1;
       let middle = i !== 0 && !last;
       // any changes to the binding context?
-      if (view.bindingContext[local] === items[i + first]
-        && view.overrideContext.$middle === middle
-        && view.overrideContext.$last === last) {
+      if (view.bindingContext[local] === items[i + first] && view.overrideContext.$middle === middle && view.overrideContext.$last === last) {
         // no changes. continue...
         continue;
       }
@@ -86,8 +84,6 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
       view.bind(overrideContext.bindingContext, overrideContext);
       repeat.viewSlot.add(view);
     }
-
-    repeat._updateSizes();
   }
 
   /**
@@ -188,16 +184,15 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
   }
 
   _handleAddedSplices(repeat, array, splices) {
-    let spliceIndex;
     let spliceIndexLow;
     let arrayLength = array.length;
     for (let i = 0, ii = splices.length; i < ii; ++i) {
       let splice = splices[i];
-      let addIndex = spliceIndex = splice.index;
+      let addIndex = splice.index;
       let end = splice.index + splice.addedCount;
 
       if (typeof spliceIndexLow === 'undefined' || spliceIndexLow === null || spliceIndexLow > splice.index) {
-        spliceIndexLow = spliceIndex;
+        spliceIndexLow = addIndex;
       }
 
       for (; addIndex < end; ++addIndex) {
