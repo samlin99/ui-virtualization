@@ -38,6 +38,7 @@ import {DomStrategyLocator} from './dom-strategy';
 export class VirtualRepeat {
   first = 0;
   bufferSize = 10;
+  nextRebind = this.bufferSize;
   previousFirst = 0;
   numberOfDomElements = 0;
 
@@ -148,24 +149,23 @@ export class VirtualRepeat {
     let itemHeight = this.itemHeight;
     let scrollTop = this.scrollContainer.scrollTop;
     this.first = Math.round(scrollTop / itemHeight);
-
-    if(this._isScrollingDown()) {
+    console.log(this.first);
+    if(this._isScrollingDown() && this._isTopBufferScrolled()) {
+      console.log('move views down', this.first, this.nextRebind);
       this.isAtTop = false;
-      let delta = this._getDelta(this.first - this.previousFirst);
-      this.first = this.previousFirst + delta;
-      this._rebindAndMoveToBottom();
-      this.topBufferHeight = this.topBufferHeight + itemHeight * delta;
-      this.bottomBufferHeight = this.bottomBufferHeight - itemHeight * delta;
+      let movedViewsCount = this._moveViewsToBottom();
+      this.topBufferHeight = this.topBufferHeight + itemHeight * movedViewsCount;
+      this.bottomBufferHeight = this.bottomBufferHeight - itemHeight * movedViewsCount;
       if (this.bottomBufferHeight >= 0) {
         this._adjustBufferHeights();
       }
-    } else if (this._isScrollingUp()){
+    } else if (this._isScrollingUp() && this._isBottomBufferScrolled()) {
+      console.log('move views up', this.first, this.nextRebind);
       this.isLastIndex = false;
-      let delta = this._getDelta(this.previousFirst - this.first);
-      this.first = this.previousFirst - delta;
-      this._rebindAndMoveToTop();
-      this.topBufferHeight = this.topBufferHeight - itemHeight * delta;
-      this.bottomBufferHeight = this.bottomBufferHeight + itemHeight * delta;
+      let movedViewsCount = this._moveViewsToTop();
+      console.log(movedViewsCount);
+      this.topBufferHeight = this.topBufferHeight - itemHeight * movedViewsCount;
+      this.bottomBufferHeight = this.bottomBufferHeight + itemHeight * movedViewsCount;
       if (this.topBufferHeight >= 0) {
         this._adjustBufferHeights();
       }
@@ -201,14 +201,25 @@ export class VirtualRepeat {
   }
 
   _isScrollingDown() {
-    let isTopElementScrolledOutside = this.first > this.previousFirst;
-    let isBufferScrolled = this.first > this.bufferSize;
-    return isTopElementScrolledOutside && isBufferScrolled && (this.bottomBufferHeight > 0 || !this.isLastIndex);
+    return this.first > this.previousFirst && (this.bottomBufferHeight > 0 || !this.isLastIndex);
+  }
+
+  _isTopBufferScrolled() {
+    if (this.first > this.nextRebind) {
+      this.nextRebind = this.nextRebind + this.bufferSize;
+      return true;
+    }
+  }
+
+  _isBottomBufferScrolled() {
+    if ((this.nextRebind - this.first) > this.bufferSize) {
+      this.nextRebind = this.nextRebind - this.bufferSize;
+      return true;
+    }
   }
 
   _isScrollingUp() {
-    let isBottomBufferScrolled = this.first + this.elementsInView <= this.items.length - this.bufferSize;
-    return this.first < this.previousFirst && isBottomBufferScrolled && (this.topBufferHeight >= 0 || !this.isAtTop);
+    return this.first < this.previousFirst && (this.topBufferHeight >= 0 || !this.isAtTop);
   }
 
   _adjustBufferHeights() {
@@ -231,38 +242,48 @@ export class VirtualRepeat {
     }
   }
 
-  _rebindAndMoveToBottom(){
+  _moveViewsToBottom() {
     let first = this.first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let view = viewSlot.children[0];
-    let index = first + childrenLength - this.bufferSize - 1;
-    if(!this.isLastIndex) {
-      updateOverrideContext(view.overrideContext, index, items.length);
-      view.bindingContext[this.local] = items[index];
+    let index = childrenLength + this.nextRebind - (this.bufferSize * 2);
+    for(let i = 0; i < this.bufferSize; ++i) {
+      if(this.isLastIndex) {
+        return this.bufferSize - (this.bufferSize - i);
+      }
+      let view = viewSlot.children[0];
+      updateOverrideContext(view.overrideContext, i + index, items.length);
+      view.bindingContext[this.local] = items[i + index];
       viewSlot.children.push(viewSlot.children.shift());
       this.domStrategy.moveViewLast(view, scrollList, childrenLength);
+      this.isLastIndex = i + index >= items.length - 1;
     }
-    this.isLastIndex = index >= items.length - 1;
+    return this.bufferSize;
   }
 
-  _rebindAndMoveToTop() {
+  _moveViewsToTop() {
     let first = this.first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let view = viewSlot.children[childrenLength - 1];
-    let index = first - this.bufferSize - 1;
-    if(!this.isAtTop) {
-      view.bindingContext[this.local] = items[index];
+    let index = this.nextRebind;
+
+    for(let i = 0; i < this.bufferSize; ++i) {
+      if(this.isAtTop) {
+        return this.bufferSize - (this.bufferSize - i);
+      }
+      let view = viewSlot.children[childrenLength - 1];
+      view.bindingContext[this.local] = items[index - i];
       updateOverrideContext(view.overrideContext, first, items.length);
       viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
       this.domStrategy.moveViewFirst(view, scrollList);
+      this.isAtTop = index - i <= 0;
+      console.log('index - i', index - i);
     }
-    this.isAtTop = index <= 0;
+    return this.bufferSize;
   }
 
   _calcInitialHeights() {
@@ -273,7 +294,7 @@ export class VirtualRepeat {
     this.itemHeight = calcOuterHeight(listItems[1]); // TODO: 0 or 1 depending on scroll strategy
     this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
     this.elementsInView = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
-    this.numberOfDomElements = this.elementsInView + this.bufferSize + this.bufferSize;
+    this.numberOfDomElements = (this.elementsInView * 2) + this.bufferSize;
     this.bottomBufferHeight = this.itemHeight * this.items.length - this.itemHeight * this.numberOfDomElements;
     this.bottomBuffer.setAttribute("style", `height: ${this.bottomBufferHeight}px`);
   }
