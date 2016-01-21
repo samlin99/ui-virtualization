@@ -36,14 +36,20 @@ import {DomStrategyLocator} from './dom-strategy';
 @templateController
 @inject(Element, BoundViewFactory, TargetInstruction, ViewSlot, ObserverLocator, VirtualRepeatStrategyLocator, DomStrategyLocator)
 export class VirtualRepeat {
-  first = 0;
-  bufferSize = 10;
-  nextRebind = this.bufferSize;
-  previousFirst = 0;
-  numberOfDomElements = 0;
+  _first = 0;
+  _previousFirst = 0;
+  _viewsLength = 0;
+  _lastRebind = 0;
+  _topBufferHeight = 0;
+  _bottomBufferHeight = 0;
+  _bufferSize = 20;
+  _scrollingDown = false;
+  _scrollingUp = false;
+  _switchedDirection = false;
 
   @bindable items
   @bindable local
+  @bindable buffer
   constructor(element, viewFactory, instruction, viewSlot, observerLocator, strategyLocator, domStrategyLocator){
     this.element = element;
     this.viewFactory = viewFactory;
@@ -59,27 +65,21 @@ export class VirtualRepeat {
   }
 
   attached(){
-    this.isAttached = true;
     let element = this.element;
-
     this.domStrategy = this.domStrategyLocator.getStrategy(element);
     this.scrollList = this.domStrategy.getScrollList(element);
     this.scrollContainer = this.domStrategy.getScrollContainer(element);
-
     this.topBuffer = this.domStrategy.createTopBufferElement(this.scrollList, element);
     this.bottomBuffer = this.domStrategy.createBottomBufferElement(this.scrollList, element);
-    this.topBufferHeight = 0;
-    this.bottomBufferHeight = 0;
-
     this.itemsChanged();
-    this.scroll();
+    this._handleScroll();
   }
 
   bind(bindingContext, overrideContext){
     this.scope = { bindingContext, overrideContext };
 
     // TODO Fix this
-    window.onresize = () => { this.handleContainerResize(); };
+    window.onresize = () => { this._handleResize(); };
   }
 
   call(context, changes) {
@@ -87,13 +87,12 @@ export class VirtualRepeat {
   }
 
   detached() {
-    this.isAttached = false;
     this.scrollList = null;
     this.scrollContainer = null;
-    this.numberOfDomElements = null;
+    this._viewsLength = null;
     this.scrollContainerHeight = null;
-    this.first = null;
-    this.previousFirst = null;
+    this._first = null;
+    this._previousFirst = null;
     this.viewSlot.removeAll(true);
     if(this.scrollHandler) {
       this.scrollHandler.dispose();
@@ -118,61 +117,12 @@ export class VirtualRepeat {
       this._observeCollection();
     }
 
-    this.strategy.instanceChanged(this, items, this.numberOfDomElements);
+    this.strategy.instanceChanged(this, items, this._viewsLength);
   }
 
   unbind(){
     this.scope = null;
     this.items = null;
-  }
-
-  handleContainerResize() {
-    var children = this.viewSlot.children,
-      childrenLength = children.length,
-      overrideContext, view, addIndex;
-
-    this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
-    this.numberOfDomElements = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
-
-    if(this.numberOfDomElements > childrenLength){
-      addIndex = children[childrenLength - 1].overrideContext.$index + 1;
-      overrideContext = createFullOverrideContext(this, this.items[addIndex], addIndex, this.items.length);
-      view = this.viewFactory.create();
-      view.bind(overrideContext.bindingContext, overrideContext);
-      this.viewSlot.insert(childrenLength, view);
-    }else if (this.numberOfDomElements < childrenLength){
-      this.numberOfDomElements = childrenLength;
-    }
-  }
-
-  scroll() {
-    let itemHeight = this.itemHeight;
-    let scrollTop = this.scrollContainer.scrollTop;
-    this.first = Math.round(scrollTop / itemHeight);
-    console.log(this.first);
-    if(this._isScrollingDown() && this._isTopBufferScrolled()) {
-      console.log('move views down', this.first, this.nextRebind);
-      this.isAtTop = false;
-      let movedViewsCount = this._moveViewsToBottom();
-      this.topBufferHeight = this.topBufferHeight + itemHeight * movedViewsCount;
-      this.bottomBufferHeight = this.bottomBufferHeight - itemHeight * movedViewsCount;
-      if (this.bottomBufferHeight >= 0) {
-        this._adjustBufferHeights();
-      }
-    } else if (this._isScrollingUp() && this._isBottomBufferScrolled()) {
-      console.log('move views up', this.first, this.nextRebind);
-      this.isLastIndex = false;
-      let movedViewsCount = this._moveViewsToTop();
-      console.log(movedViewsCount);
-      this.topBufferHeight = this.topBufferHeight - itemHeight * movedViewsCount;
-      this.bottomBufferHeight = this.bottomBufferHeight + itemHeight * movedViewsCount;
-      if (this.topBufferHeight >= 0) {
-        this._adjustBufferHeights();
-      }
-    }
-
-    this.previousFirst = this.first;
-    requestAnimationFrame(() => this.scroll());
   }
 
   handleCollectionMutated(collection, changes) {
@@ -200,38 +150,102 @@ export class VirtualRepeat {
     }
   }
 
-  _isScrollingDown() {
-    return this.first > this.previousFirst && (this.bottomBufferHeight > 0 || !this.isLastIndex);
+  _handleScroll() {
+    let itemHeight = this.itemHeight;
+    let scrollTop = this.scrollContainer.scrollTop;
+    this._first = Math.round(scrollTop / itemHeight);
+    this._checkScrolling();
+
+    // TODO if and else paths do almost same thing, refactor?
+
+    // move views down?
+    if(this._scrollingDown && (this._hasScrolledDownTheBuffer() || (this._switchedDirection && this._hasScrolledDownTheBufferFromTop()))) {
+      this._switchedDirection = false;
+      this.isAtTop = false;
+      this._lastRebind = this._first;
+      let movedViewsCount = this._moveViewsToBottom();
+      let adjustHeight = movedViewsCount < this._bufferSize ? this._bottomBufferHeight : itemHeight * movedViewsCount;
+      this._topBufferHeight = this._topBufferHeight + adjustHeight;
+      this._bottomBufferHeight = this._bottomBufferHeight - adjustHeight;
+      if (this._bottomBufferHeight >= 0) {
+        this._adjustBufferHeights();
+      }
+    // move view up?
+    } else if (this._scrollingUp && (this._hasScrolledUpTheBuffer() || (this._switchedDirection && this._hasScrolledUpTheBufferFromBottom()))) {
+      this._switchedDirection = false;
+      this.isLastIndex = false;
+      this._lastRebind = this._first;
+      let movedViewsCount = this._moveViewsToTop();
+      let adjustHeight = movedViewsCount < this._bufferSize ? this._topBufferHeight : itemHeight * movedViewsCount;
+      this._topBufferHeight = this._topBufferHeight - adjustHeight;
+      this._bottomBufferHeight = this._bottomBufferHeight + adjustHeight;
+      if (this._topBufferHeight >= 0) {
+        this._adjustBufferHeights();
+      }
+    }
+    this._previousFirst = this._first;
+    requestAnimationFrame(() => this._handleScroll());
   }
 
-  _isTopBufferScrolled() {
-    if (this.first > this.nextRebind) {
-      this.nextRebind = this.nextRebind + this.bufferSize;
-      return true;
+  _handleResize() {
+    var children = this.viewSlot.children,
+      childrenLength = children.length,
+      overrideContext, view, addIndex;
+
+    this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
+    this._viewsLength = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
+
+    if(this._viewsLength > childrenLength){
+      addIndex = children[childrenLength - 1].overrideContext.$index + 1;
+      overrideContext = createFullOverrideContext(this, this.items[addIndex], addIndex, this.items.length);
+      view = this.viewFactory.create();
+      view.bind(overrideContext.bindingContext, overrideContext);
+      this.viewSlot.insert(childrenLength, view);
+    }else if (this._viewsLength < childrenLength){
+      this._viewsLength = childrenLength;
     }
   }
 
-  _isBottomBufferScrolled() {
-    if ((this.nextRebind - this.first) > this.bufferSize) {
-      this.nextRebind = this.nextRebind - this.bufferSize;
-      return true;
+  _checkScrolling() {
+    if (this._first > this._previousFirst && (this._bottomBufferHeight > 0 || !this.isLastIndex)) {
+      if (!this._scrollingDown) {
+        this._scrollingDown = true;
+        this._scrollingUp = false;
+        this._switchedDirection = true;
+      } else {
+        this._switchedDirection = false;
+      }
+    } else if (this._first < this._previousFirst && (this._topBufferHeight >= 0 || !this.isAtTop)) {
+      if (!this._scrollingUp) {
+        this._scrollingDown = false;
+        this._scrollingUp = true;
+        this._lastRebind = this._first;
+        this._switchedDirection = true;
+      } else {
+        this._switchedDirection = false;
+      }
     }
   }
 
-  _isScrollingUp() {
-    return this.first < this.previousFirst && (this.topBufferHeight >= 0 || !this.isAtTop);
+  _hasScrolledDownTheBuffer() {
+    return this._first - this._lastRebind >= this._bufferSize;
+  }
+
+  _hasScrolledDownTheBufferFromTop() {
+    return this._first - this._bufferSize > 0;
+  }
+
+  _hasScrolledUpTheBuffer() {
+    return this._lastRebind - this._first >= this._bufferSize;
+  }
+
+  _hasScrolledUpTheBufferFromBottom() {
+    return this._first + this._bufferSize < this.items.length;
   }
 
   _adjustBufferHeights() {
-    this.topBuffer.setAttribute('style', `height:  ${this.topBufferHeight}px`);
-    this.bottomBuffer.setAttribute("style", `height: ${this.bottomBufferHeight}px`);
-  }
-
-  _getDelta(itemsSkipped) {
-    if(itemsSkipped >= this.numberOfDomElements * 2) {
-      return Math.round(itemsSkipped / 2);
-    }
-    return 1;
+    this.topBuffer.setAttribute('style', `height:  ${this._topBufferHeight}px`);
+    this.bottomBuffer.setAttribute("style", `height: ${this._bottomBufferHeight}px`);
   }
 
   _unsubscribeCollection() {
@@ -242,61 +256,65 @@ export class VirtualRepeat {
     }
   }
 
+  // TODO _moveViewsToTop and _moveViewsToBottom do almost the same, refactor?
+
   _moveViewsToBottom() {
-    let first = this.first;
+    let first = this._first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let index = childrenLength + this.nextRebind - (this.bufferSize * 2);
-    for(let i = 0; i < this.bufferSize; ++i) {
+    let bufferSize = this._bufferSize;
+    let index = viewSlot.children[viewSlot.children.length - 1].overrideContext.$index + 1;
+    for(let i = 0; i < bufferSize; ++i) {
       if(this.isLastIndex) {
-        return this.bufferSize - (this.bufferSize - i);
+        return bufferSize - (bufferSize - i);
       }
       let view = viewSlot.children[0];
-      updateOverrideContext(view.overrideContext, i + index, items.length);
-      view.bindingContext[this.local] = items[i + index];
+      let nextIndex = index + i;
+      updateOverrideContext(view.overrideContext, nextIndex, items.length);
+      view.bindingContext[this.local] = items[nextIndex];
       viewSlot.children.push(viewSlot.children.shift());
       this.domStrategy.moveViewLast(view, scrollList, childrenLength);
-      this.isLastIndex = i + index >= items.length - 1;
+      this.isLastIndex = nextIndex >= items.length - 1;
     }
-    return this.bufferSize;
+    return bufferSize;
   }
 
   _moveViewsToTop() {
-    let first = this.first;
+    let first = this._first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let index = this.nextRebind;
-
-    for(let i = 0; i < this.bufferSize; ++i) {
+    let bufferSize = this._bufferSize;
+    let index = viewSlot.children[0].overrideContext.$index - 1;
+    for(let i = 0; i < bufferSize; ++i) {
       if(this.isAtTop) {
-        return this.bufferSize - (this.bufferSize - i);
+        return bufferSize - (bufferSize - i);
       }
       let view = viewSlot.children[childrenLength - 1];
-      view.bindingContext[this.local] = items[index - i];
-      updateOverrideContext(view.overrideContext, first, items.length);
+      let nextIndex = index - i;
+      view.bindingContext[this.local] = items[nextIndex];
+      updateOverrideContext(view.overrideContext, nextIndex, items.length);
       viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
       this.domStrategy.moveViewFirst(view, scrollList);
-      this.isAtTop = index - i <= 0;
-      console.log('index - i', index - i);
+      this.isAtTop = nextIndex <= 0;
     }
-    return this.bufferSize;
+    return bufferSize;
   }
 
   _calcInitialHeights() {
-    if (this.numberOfDomElements > 0) {
+    if (this._viewsLength > 0) {
       return;
     }
     let listItems = this.scrollList.children;
     this.itemHeight = calcOuterHeight(listItems[1]); // TODO: 0 or 1 depending on scroll strategy
     this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
     this.elementsInView = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
-    this.numberOfDomElements = (this.elementsInView * 2) + this.bufferSize;
-    this.bottomBufferHeight = this.itemHeight * this.items.length - this.itemHeight * this.numberOfDomElements;
-    this.bottomBuffer.setAttribute("style", `height: ${this.bottomBufferHeight}px`);
+    this._viewsLength = (this.elementsInView * 2) + this._bufferSize;
+    this._bottomBufferHeight = this.itemHeight * this.items.length - this.itemHeight * this._viewsLength;
+    this.bottomBuffer.setAttribute("style", `height: ${this._bottomBufferHeight}px`);
   }
 
   _observeInnerCollection() {

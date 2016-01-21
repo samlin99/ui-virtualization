@@ -31,7 +31,7 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
   }
 
   _standardProcessInstanceChanged(repeat, items) {
-    for(var i = 1, ii = repeat.numberOfDomElements; i < ii; ++i){
+    for(var i = 1, ii = repeat._viewsLength; i < ii; ++i){
       let overrideContext = createFullOverrideContext(repeat, items[i], i, ii);
       let view = repeat.viewFactory.create();
       view.bind(overrideContext.bindingContext, overrideContext);
@@ -42,9 +42,9 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
   _inPlaceProcessItems(repeat, items) {
     let itemsLength = items.length;
     let viewsLength = repeat.viewSlot.children.length;
-    let first = repeat.first;
+    let first = repeat._first;
     // remove unneeded views.
-    while (viewsLength > repeat.numberOfDomElements) {
+    while (viewsLength > repeat._viewsLength) {
       viewsLength--;
       repeat.viewSlot.removeAt(viewsLength, true);
     }
@@ -78,7 +78,7 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
       }
     }
     // add new views
-    for (let i = viewsLength; i < repeat.numberOfDomElements; i++) {
+    for (let i = viewsLength; i < repeat._viewsLength; i++) {
       let overrideContext = createFullOverrideContext(repeat, items[i], i, itemsLength);
       let view = repeat.viewFactory.create();
       view.bind(overrideContext.bindingContext, overrideContext);
@@ -144,17 +144,17 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
   }
 
   _updateViews(repeat, items, splices) {
-    var numberOfDomElements = repeat.numberOfDomElements,
+    var viewsLength = repeat._viewsLength,
       viewSlot = repeat.viewSlot,
-      first = repeat.first,
+      first = repeat._first,
       totalAdded = 0,
       view, i, ii, j, marginTop, addIndex, splice, end, atBottom;
     repeat.items = items;
 
     for(i = 0, ii = viewSlot.children.length; i < ii; ++i){
       view = viewSlot.children[i];
-      view.bindingContext[repeat.local] = items[repeat.first + i];
-      updateOverrideContext(view.overrideContext, repeat.first + i, items.length);
+      view.bindingContext[repeat.local] = items[repeat._first + i];
+      updateOverrideContext(view.overrideContext, repeat._first + i, items.length);
     }
 
     for(i = 0, ii = splices.length; i < ii; ++i){
@@ -164,16 +164,16 @@ export class ArrayVirtualRepeatStrategy extends ArrayRepeatStrategy {
       totalAdded += splice.addedCount;
 
       for (; addIndex < end; ++addIndex) {
-        if(addIndex < first + numberOfDomElements && !atBottom){
+        if(addIndex < first + viewsLength && !atBottom){
           marginTop = repeat.itemHeight * first + "px";
           repeat.virtualScrollInner.style.marginTop = marginTop;
         }
       }
     }
 
-    if(items.length < numberOfDomElements){
-      var limit = numberOfDomElements - (numberOfDomElements - items.length) - 1;
-      for(j = 0; j < numberOfDomElements; ++j){
+    if(items.length < viewsLength){
+      var limit = viewsLength - (viewsLength - items.length) - 1;
+      for(j = 0; j < viewsLength; ++j){
         repeat.virtualScrollInner.children[j].style.display = j >= limit ? 'none' : 'block';
       }
     }
