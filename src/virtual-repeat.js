@@ -162,8 +162,8 @@ export class VirtualRepeat {
     if(this._scrollingDown && (this._hasScrolledDownTheBuffer() || (this._switchedDirection && this._hasScrolledDownTheBufferFromTop()))) {
       this._switchedDirection = false;
       this.isAtTop = false;
+      let movedViewsCount = this._moveViewsToBottom(this._first - this._lastRebind);
       this._lastRebind = this._first;
-      let movedViewsCount = this._moveViewsToBottom();
       let adjustHeight = movedViewsCount < this._bufferSize ? this._bottomBufferHeight : itemHeight * movedViewsCount;
       this._topBufferHeight = this._topBufferHeight + adjustHeight;
       this._bottomBufferHeight = this._bottomBufferHeight - adjustHeight;
@@ -174,8 +174,8 @@ export class VirtualRepeat {
     } else if (this._scrollingUp && (this._hasScrolledUpTheBuffer() || (this._switchedDirection && this._hasScrolledUpTheBufferFromBottom()))) {
       this._switchedDirection = false;
       this.isLastIndex = false;
+      let movedViewsCount = this._moveViewsToTop(this._lastRebind - this._first);
       this._lastRebind = this._first;
-      let movedViewsCount = this._moveViewsToTop();
       let adjustHeight = movedViewsCount < this._bufferSize ? this._topBufferHeight : itemHeight * movedViewsCount;
       this._topBufferHeight = this._topBufferHeight - adjustHeight;
       this._bottomBufferHeight = this._bottomBufferHeight + adjustHeight;
@@ -258,17 +258,16 @@ export class VirtualRepeat {
 
   // TODO _moveViewsToTop and _moveViewsToBottom do almost the same, refactor?
 
-  _moveViewsToBottom() {
+  _moveViewsToBottom(length) {
     let first = this._first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let bufferSize = this._bufferSize;
     let index = viewSlot.children[viewSlot.children.length - 1].overrideContext.$index + 1;
-    for(let i = 0; i < bufferSize; ++i) {
+    for(let i = 0; i < length; ++i) {
       if(this.isLastIndex) {
-        return bufferSize - (bufferSize - i);
+        return length - (length - i);
       }
       let view = viewSlot.children[0];
       let nextIndex = index + i;
@@ -278,20 +277,19 @@ export class VirtualRepeat {
       this.domStrategy.moveViewLast(view, scrollList, childrenLength);
       this.isLastIndex = nextIndex >= items.length - 1;
     }
-    return bufferSize;
+    return length;
   }
 
-  _moveViewsToTop() {
+  _moveViewsToTop(length) {
     let first = this._first;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
     let items = this.items;
     let scrollList = this.scrollList;
-    let bufferSize = this._bufferSize;
     let index = viewSlot.children[0].overrideContext.$index - 1;
-    for(let i = 0; i < bufferSize; ++i) {
+    for(let i = 0; i < length; ++i) {
       if(this.isAtTop) {
-        return bufferSize - (bufferSize - i);
+        return length - (length - i);
       }
       let view = viewSlot.children[childrenLength - 1];
       let nextIndex = index - i;
@@ -301,7 +299,7 @@ export class VirtualRepeat {
       this.domStrategy.moveViewFirst(view, scrollList);
       this.isAtTop = nextIndex <= 0;
     }
-    return bufferSize;
+    return length;
   }
 
   _calcInitialHeights() {
