@@ -49,7 +49,6 @@ export class VirtualRepeat {
 
   @bindable items
   @bindable local
-  @bindable buffer
   constructor(element, viewFactory, instruction, viewSlot, observerLocator, strategyLocator, domStrategyLocator){
     this.element = element;
     this.viewFactory = viewFactory;
@@ -155,16 +154,19 @@ export class VirtualRepeat {
     let scrollTop = this.scrollContainer.scrollTop;
     this._first = Math.round(scrollTop / itemHeight);
     this._checkScrolling();
-
     // TODO if and else paths do almost same thing, refactor?
-
     // move views down?
     if(this._scrollingDown && (this._hasScrolledDownTheBuffer() || (this._switchedDirection && this._hasScrolledDownTheBufferFromTop()))) {
-      this._switchedDirection = false;
+      //console.log('rebind down', this._switchedDirection);
+      let viewsToMove = this._first - this._lastRebind;
+      if(this._switchedDirection) {
+        viewsToMove = this._bufferSize - (this._lastRebind - this._first);
+      }
       this.isAtTop = false;
-      let movedViewsCount = this._moveViewsToBottom(this._first - this._lastRebind);
       this._lastRebind = this._first;
-      let adjustHeight = movedViewsCount < this._bufferSize ? this._bottomBufferHeight : itemHeight * movedViewsCount;
+      let movedViewsCount = this._moveViews(viewsToMove);
+      let adjustHeight = movedViewsCount < viewsToMove ? this._bottomBufferHeight : itemHeight * movedViewsCount;
+      this._switchedDirection = false;
       this._topBufferHeight = this._topBufferHeight + adjustHeight;
       this._bottomBufferHeight = this._bottomBufferHeight - adjustHeight;
       if (this._bottomBufferHeight >= 0) {
@@ -172,11 +174,16 @@ export class VirtualRepeat {
       }
     // move view up?
     } else if (this._scrollingUp && (this._hasScrolledUpTheBuffer() || (this._switchedDirection && this._hasScrolledUpTheBufferFromBottom()))) {
-      this._switchedDirection = false;
+      let viewsToMove = this._lastRebind - this._first;
+      if(this._switchedDirection) {
+          viewsToMove = this._bufferSize - (this._first - this._lastRebind);
+      }
       this.isLastIndex = false;
-      let movedViewsCount = this._moveViewsToTop(this._lastRebind - this._first);
       this._lastRebind = this._first;
-      let adjustHeight = movedViewsCount < this._bufferSize ? this._topBufferHeight : itemHeight * movedViewsCount;
+      let movedViewsCount = this._moveViews(viewsToMove);
+      this.movedViewsCount = movedViewsCount;
+      let adjustHeight = movedViewsCount < viewsToMove ? this._topBufferHeight : itemHeight * movedViewsCount;
+      this._switchedDirection = false;
       this._topBufferHeight = this._topBufferHeight - adjustHeight;
       this._bottomBufferHeight = this._bottomBufferHeight + adjustHeight;
       if (this._topBufferHeight >= 0) {
@@ -219,7 +226,6 @@ export class VirtualRepeat {
       if (!this._scrollingUp) {
         this._scrollingDown = false;
         this._scrollingUp = true;
-        this._lastRebind = this._first;
         this._switchedDirection = true;
       } else {
         this._switchedDirection = false;
@@ -256,50 +262,43 @@ export class VirtualRepeat {
     }
   }
 
-  // TODO _moveViewsToTop and _moveViewsToBottom do almost the same, refactor?
-
-  _moveViewsToBottom(length) {
-    let first = this._first;
+  _moveViews(length) {
+    let getNextIndex = this._scrollingDown ? (index, i) =>  index + i : (index, i) =>  index - i;
+    let isAtFirstOrLastIndex = () => this._scrollingDown ? this.isLastIndex : this.isAtTop;
     let viewSlot = this.viewSlot;
     let childrenLength = viewSlot.children.length;
+    let viewIndex = this._scrollingDown ? 0 : childrenLength - 1;
     let items = this.items;
     let scrollList = this.scrollList;
-    let index = viewSlot.children[viewSlot.children.length - 1].overrideContext.$index + 1;
-    for(let i = 0; i < length; ++i) {
-      if(this.isLastIndex) {
-        return length - (length - i);
-      }
-      let view = viewSlot.children[0];
-      let nextIndex = index + i;
+    let index = this._scrollingDown ? this._getIndexOfFirstView() : this._getIndexOfLastView();
+    let i = 0;
+    while(i < length && !isAtFirstOrLastIndex()) {
+      let view = viewSlot.children[viewIndex];
+      let nextIndex = getNextIndex(index, i);
       updateOverrideContext(view.overrideContext, nextIndex, items.length);
       view.bindingContext[this.local] = items[nextIndex];
-      viewSlot.children.push(viewSlot.children.shift());
-      this.domStrategy.moveViewLast(view, scrollList, childrenLength);
-      this.isLastIndex = nextIndex >= items.length - 1;
+      if(this._scrollingDown) {
+        viewSlot.children.push(viewSlot.children.shift());
+        this.domStrategy.moveViewLast(view, scrollList, childrenLength);
+        this.isLastIndex = nextIndex >= items.length - 1;
+      } else {
+        viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
+        this.domStrategy.moveViewFirst(view, scrollList);
+        this.isAtTop = nextIndex <= 0;
+      }
+      i++;
     }
-    return length;
+    return length - (length - i);
   }
 
-  _moveViewsToTop(length) {
-    let first = this._first;
-    let viewSlot = this.viewSlot;
-    let childrenLength = viewSlot.children.length;
-    let items = this.items;
-    let scrollList = this.scrollList;
-    let index = viewSlot.children[0].overrideContext.$index - 1;
-    for(let i = 0; i < length; ++i) {
-      if(this.isAtTop) {
-        return length - (length - i);
-      }
-      let view = viewSlot.children[childrenLength - 1];
-      let nextIndex = index - i;
-      view.bindingContext[this.local] = items[nextIndex];
-      updateOverrideContext(view.overrideContext, nextIndex, items.length);
-      viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
-      this.domStrategy.moveViewFirst(view, scrollList);
-      this.isAtTop = nextIndex <= 0;
-    }
-    return length;
+  _getIndexOfFirstView(){
+    let children = this.viewSlot.children;
+    return children[children.length - 1].overrideContext.$index + 1;
+  }
+
+  _getIndexOfLastView(){
+    let children = this.viewSlot.children;
+    return children[0].overrideContext.$index - 1;
   }
 
   _calcInitialHeights() {
@@ -307,7 +306,7 @@ export class VirtualRepeat {
       return;
     }
     let listItems = this.scrollList.children;
-    this.itemHeight = calcOuterHeight(listItems[1]); // TODO: 0 or 1 depending on scroll strategy
+    this.itemHeight = calcOuterHeight(listItems[1]);
     this.scrollContainerHeight = calcScrollHeight(this.scrollContainer);
     this.elementsInView = Math.ceil(this.scrollContainerHeight / this.itemHeight) + 1;
     this._viewsLength = (this.elementsInView * 2) + this._bufferSize;
