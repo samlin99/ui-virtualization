@@ -40,16 +40,6 @@ var ScrollHandler = (function () {
     this.keyDownListener = function (e) {
       return _this.keyDown(e);
     };
-
-    this.mouseDownListener = function (e) {
-      return _this.touchStart(e);
-    };
-    this.mouseMoveListener = function (e) {
-      return _this.touchMove(e);
-    };
-    this.mouseUpListener = function (e) {
-      return _this.touchEnd(e);
-    };
   }
 
   ScrollHandler.prototype.initialize = function initialize(view, listener) {
@@ -63,9 +53,10 @@ var ScrollHandler = (function () {
     if (this.hasMouseWheelEvent) {
       view.addEventListener("mousewheel", this.mouseWheelListener);
 
-      view.addEventListener('mousedown', this.mouseDownListener);
-      view.addEventListener('mousemove', this.mouseMoveListener);
-      view.addEventListener('mouseup', this.mouseUpListener);
+      view.addEventListener('mousedown', this.touchStartListener);
+      view.addEventListener('mousemove', this.touchMoveListener);
+      view.addEventListener('mouseup', this.touchEndListener);
+      view.addEventListener('mousecancel', this.touchEndListener);
     }
 
     if (typeof window.ontouchstart !== 'undefined') {
@@ -94,6 +85,7 @@ var ScrollHandler = (function () {
       this.view.removeEventListener("mousedown", this.touchStartListener);
       this.view.removeEventListener("mousemove", this.touchMoveListener);
       this.view.removeEventListener("mouseup", this.touchEndListener);
+      this.view.removeEventListener("mousecancel", this.touchEndListener);
     }
   };
 
@@ -152,7 +144,6 @@ var ScrollHandler = (function () {
   ScrollHandler.prototype.touchStart = function touchStart(event) {
     var _this3 = this;
 
-    console.log(event);
     this.pressed = true;
     this.reference = this.ypos(event);
 
@@ -176,7 +167,7 @@ var ScrollHandler = (function () {
 
     clearInterval(this.ticker);
     if (this.velocity > 10 || this.velocity < -10) {
-      this.amplitude = 0.2 * this.velocity;
+      this.amplitude = 0.08 * this.velocity;
       this.target = Math.round(this.offset + this.amplitude);
       this.timestamp = Date.now();
       requestAnimationFrame(function () {
