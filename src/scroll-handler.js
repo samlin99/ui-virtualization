@@ -19,6 +19,10 @@ export class ScrollHandler{
     this.touchMoveListener = e => this.touchMove(e);
     this.touchEndListener = e => this.touchEnd(e);
     this.keyDownListener = e => this.keyDown(e);
+    
+    this.mouseDownListener = e => this.touchStart(e);
+    this.mouseMoveListener = e => this.touchMove(e);
+    this.mouseUpListener = e => this.touchEnd(e);
   }
 
   initialize(view, listener){
@@ -31,6 +35,10 @@ export class ScrollHandler{
 
     if(this.hasMouseWheelEvent){
       view.addEventListener("mousewheel", this.mouseWheelListener);
+      
+      view.addEventListener('mousedown', this.mouseDownListener);
+      view.addEventListener('mousemove', this.mouseMoveListener);
+      view.addEventListener('mouseup', this.mouseUpListener);      
     }
 
     if (typeof window.ontouchstart !== 'undefined') {
@@ -55,6 +63,10 @@ export class ScrollHandler{
       this.view.removeEventListener("touchmove", this.touchMoveListener);
       this.view.removeEventListener("touchend", this.touchEndListener);
       this.view.removeEventListener("keydown", this.keyDownListener);
+      
+      this.view.removeEventListener("mousedown", this.touchStartListener);
+      this.view.removeEventListener("mousemove", this.touchMoveListener);
+      this.view.removeEventListener("mouseup", this.touchEndListener);      
     }
   }
 

@@ -40,6 +40,16 @@ var ScrollHandler = (function () {
     this.keyDownListener = function (e) {
       return _this.keyDown(e);
     };
+
+    this.mouseDownListener = function (e) {
+      return _this.touchStart(e);
+    };
+    this.mouseMoveListener = function (e) {
+      return _this.touchMove(e);
+    };
+    this.mouseUpListener = function (e) {
+      return _this.touchEnd(e);
+    };
   }
 
   ScrollHandler.prototype.initialize = function initialize(view, listener) {
@@ -52,6 +62,10 @@ var ScrollHandler = (function () {
 
     if (this.hasMouseWheelEvent) {
       view.addEventListener("mousewheel", this.mouseWheelListener);
+
+      view.addEventListener('mousedown', this.mouseDownListener);
+      view.addEventListener('mousemove', this.mouseMoveListener);
+      view.addEventListener('mouseup', this.mouseUpListener);
     }
 
     if (typeof window.ontouchstart !== 'undefined') {
@@ -76,6 +90,10 @@ var ScrollHandler = (function () {
       this.view.removeEventListener("touchmove", this.touchMoveListener);
       this.view.removeEventListener("touchend", this.touchEndListener);
       this.view.removeEventListener("keydown", this.keyDownListener);
+
+      this.view.removeEventListener("mousedown", this.touchStartListener);
+      this.view.removeEventListener("mousemove", this.touchMoveListener);
+      this.view.removeEventListener("mouseup", this.touchEndListener);
     }
   };
 
@@ -134,6 +152,7 @@ var ScrollHandler = (function () {
   ScrollHandler.prototype.touchStart = function touchStart(event) {
     var _this3 = this;
 
+    console.log(event);
     this.pressed = true;
     this.reference = this.ypos(event);
 

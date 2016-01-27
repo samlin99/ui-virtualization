@@ -24,6 +24,8 @@ var _utilities = require('./utilities');
 
 var _virtualRepeatStrategyLocator = require('./virtual-repeat-strategy-locator');
 
+var _domStrategy = require('./dom-strategy');
+
 var VirtualRepeat = (function () {
   var _instanceInitializers = {};
 
@@ -39,7 +41,7 @@ var VirtualRepeat = (function () {
     enumerable: true
   }], null, _instanceInitializers);
 
-  function VirtualRepeat(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator) {
+  function VirtualRepeat(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator, domStrategyLocator) {
     _classCallCheck(this, _VirtualRepeat);
 
     _defineDecoratedPropertyDescriptor(this, 'items', _instanceInitializers);
@@ -53,6 +55,7 @@ var VirtualRepeat = (function () {
     this.observerLocator = observerLocator;
     this.scrollHandler = scrollHandler;
     this.strategyLocator = strategyLocator;
+    this.domStrategyLocator = domStrategyLocator;
     this.local = 'item';
     this.useEase = false;
     this.targetY = 0;
@@ -71,8 +74,13 @@ var VirtualRepeat = (function () {
     var _this = this;
 
     this.isAttached = true;
-    this.virtualScrollInner = this.element.parentNode;
-    this.virtualScroll = this.virtualScrollInner.parentElement;
+
+    var element = this.element;
+
+    this.domStrategy = this.domStrategyLocator.getStrategy(element);
+    this.virtualScrollInner = this.domStrategy.getScrollElement(element);
+
+    this.virtualScroll = this.domStrategy.getWrapperElement(element);
     this.virtualScroll.style.overflow = 'hidden';
     this.virtualScroll.tabIndex = '-1';
 
@@ -85,6 +93,7 @@ var VirtualRepeat = (function () {
     });
 
     this.itemsChanged();
+    this.scroll();
   };
 
   VirtualRepeat.prototype.bind = function bind(bindingContext, overrideContext) {
@@ -103,7 +112,7 @@ var VirtualRepeat = (function () {
 
   VirtualRepeat.prototype.detached = function detached() {
     this.isAttached = false;
-    this._destroyScrollIndicator();
+    this._removeScrollIndicator();
     this.virtualScrollInner = null;
     this.virtualScroll = null;
     this.numberOfDomElements = null;
@@ -141,8 +150,6 @@ var VirtualRepeat = (function () {
     this.strategy.instanceChanged(this, items, this.numberOfDomElements);
     this._calcScrollViewHeight();
     this._calcIndicatorHeight();
-
-    this.scroll();
   };
 
   VirtualRepeat.prototype.unbind = function unbind() {
@@ -180,20 +187,10 @@ var VirtualRepeat = (function () {
       return;
     }
 
-    var scrollView = this.virtualScrollInner,
-        childNodes = scrollView.childNodes,
-        itemHeight = this.itemHeight,
-        items = this.items,
-        viewSlot = this.viewSlot,
-        numberOfDomElements = this.numberOfDomElements,
-        ease = this.useEase ? 0.1 : 1,
-        element,
-        viewStart,
-        viewEnd,
-        marginTop,
-        translateStyle,
-        view,
-        first;
+    var itemHeight = this.itemHeight;
+    var items = this.items;
+    var ease = this.useEase ? 0.1 : 1;
+    var first = undefined;
 
     this.currentY += (this.targetY - this.currentY) * ease;
     this.currentY = Math.round(this.currentY);
@@ -204,45 +201,27 @@ var VirtualRepeat = (function () {
       });
       return;
     }
-
     this.previousY = this.currentY;
     first = this.first = Math.ceil(this.currentY / itemHeight) * -1;
 
-    if (first > this.previousFirst && first + numberOfDomElements - 1 <= items.length) {
-      this.previousFirst = first;
-
-      view = viewSlot.children[0];
-      _aureliaTemplatingResourcesRepeatUtilities.updateOverrideContext(view.overrideContext, first + numberOfDomElements - 1, items.length);
-      view.bindingContext[this.local] = items[first + numberOfDomElements - 1];
-      viewSlot.children.push(viewSlot.children.shift());
-
-      _utilities.moveViewLast(view, scrollView, numberOfDomElements);
-
-      marginTop = itemHeight * first + "px";
-      scrollView.style.marginTop = marginTop;
-    } else if (first < this.previousFirst && !Object.is(first, -0)) {
-      this.previousFirst = first;
-
-      view = viewSlot.children[numberOfDomElements - 1];
-      if (view) {
-        view.bindingContext[this.local] = items[first];
-        _aureliaTemplatingResourcesRepeatUtilities.updateOverrideContext(view.overrideContext, first, items.length);
-        viewSlot.children.unshift(viewSlot.children.splice(-1, 1)[0]);
-
-        _utilities.moveViewFirst(view, scrollView);
-
-        marginTop = itemHeight * first + "px";
-        scrollView.style.marginTop = marginTop;
+    if (this._isScrollingDown(first, this.previousFirst, items)) {
+      if (first - this.previousFirst > 1) {
+        first = this.first = this.previousFirst + 1;
+        this.currentY = this.currentY + itemHeight;
       }
+      this.previousFirst = first;
+      this._rebindAndMoveToBottom();
+    } else if (this._isScrollingUp(first, this.previousFirst)) {
+      if (this.previousFirst - first > 1) {
+        first = this.first = this.previousFirst - 1;
+        this.currentY = this.currentY - itemHeight;
+      }
+      this.previousFirst = first;
+      this._rebindAndMoveToTop();
     }
 
-    translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
-    scrollView.style.webkitTransform = translateStyle;
-    scrollView.style.msTransform = translateStyle;
-    scrollView.style.transform = translateStyle;
-
+    this._animateViews();
     this.scrollIndicator();
-
     requestAnimationFrame(function () {
       return _this3.scroll();
     });
@@ -287,6 +266,22 @@ var VirtualRepeat = (function () {
     }
   };
 
+  VirtualRepeat.prototype._animateViews = function _animateViews() {
+    var translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
+    var virtualScrollInner = this.virtualScrollInner;
+    virtualScrollInner.style.webkitTransform = translateStyle;
+    virtualScrollInner.style.msTransform = translateStyle;
+    virtualScrollInner.style.transform = translateStyle;
+  };
+
+  VirtualRepeat.prototype._isScrollingDown = function _isScrollingDown(first, previousFirst, items) {
+    return first > previousFirst && first + this.viewSlot.children.length - 1 <= items.length;
+  };
+
+  VirtualRepeat.prototype._isScrollingUp = function _isScrollingUp(first, previousFirst) {
+    return first < previousFirst;
+  };
+
   VirtualRepeat.prototype._unsubscribeCollection = function _unsubscribeCollection() {
     if (this.collectionObserver) {
       this.collectionObserver.unsubscribe(this.callContext, this);
@@ -325,9 +320,14 @@ var VirtualRepeat = (function () {
   };
 
   VirtualRepeat.prototype._createScrollIndicator = function _createScrollIndicator() {
+    if (this.indicator) {
+      return;
+    }
     var indicator;
     indicator = this.indicator = document.createElement('div');
+
     this.virtualScroll.appendChild(this.indicator);
+
     indicator.classList.add('au-scroll-indicator');
     indicator.style.backgroundColor = '#cccccc';
     indicator.style.top = '0px';
@@ -337,14 +337,50 @@ var VirtualRepeat = (function () {
     indicator.style.opacity = '0.6';
   };
 
-  VirtualRepeat.prototype._destroyScrollIndicator = function _destroyScrollIndicator() {
+  VirtualRepeat.prototype._removeScrollIndicator = function _removeScrollIndicator() {
     if (this.virtualScroll && this.indicator) {
       this.virtualScroll.removeChild(this.indicator);
       this.indicator = null;
     }
   };
 
+  VirtualRepeat.prototype._rebindAndMoveToBottom = function _rebindAndMoveToBottom() {
+    var first = this.first;
+    var viewSlot = this.viewSlot;
+    var childrenLength = viewSlot.children.length;
+    var items = this.items;
+    var virtualScrollInner = this.virtualScrollInner;
+    var view = viewSlot.children[0];
+    var index = first + childrenLength - 1;
+    _aureliaTemplatingResourcesRepeatUtilities.updateOverrideContext(view.overrideContext, index, items.length);
+    view.bindingContext[this.local] = items[index];
+    viewSlot.children.push(viewSlot.children.shift());
+    this.domStrategy.moveViewLast(view, virtualScrollInner, childrenLength);
+    var marginTop = -this.currentY + "px";
+    virtualScrollInner.style.marginTop = marginTop;
+  };
+
+  VirtualRepeat.prototype._rebindAndMoveToTop = function _rebindAndMoveToTop() {
+    var first = this.first;
+    var viewSlot = this.viewSlot;
+    var childrenLength = viewSlot.children.length;
+    var items = this.items;
+    var virtualScrollInner = this.virtualScrollInner;
+    var view = viewSlot.children[childrenLength - 1];
+    if (view) {
+      view.bindingContext[this.local] = items[first];
+      _aureliaTemplatingResourcesRepeatUtilities.updateOverrideContext(view.overrideContext, first, items.length);
+      viewSlot.children.unshift(viewSlot.children.splice(-1, 1)[0]);
+      this.domStrategy.moveViewFirst(view, virtualScrollInner);
+      var marginTop = -this.currentY + "px";
+      virtualScrollInner.style.marginTop = marginTop;
+    }
+  };
+
   VirtualRepeat.prototype._calcInitialHeights = function _calcInitialHeights() {
+    if (this.numberOfDomElements > 0) {
+      return;
+    }
     var listItems = this.virtualScrollInner.children;
     this.itemHeight = _utilities.calcOuterHeight(listItems[0]);
     this.virtualScrollHeight = _utilities.calcScrollHeight(this.virtualScroll);
@@ -384,7 +420,7 @@ var VirtualRepeat = (function () {
   };
 
   var _VirtualRepeat = VirtualRepeat;
-  VirtualRepeat = _aureliaDependencyInjection.inject(Element, _aureliaTemplating.BoundViewFactory, _aureliaTemplating.TargetInstruction, _aureliaTemplating.ViewSlot, _aureliaBinding.ObserverLocator, _scrollHandler.ScrollHandler, _virtualRepeatStrategyLocator.VirtualRepeatStrategyLocator)(VirtualRepeat) || VirtualRepeat;
+  VirtualRepeat = _aureliaDependencyInjection.inject(Element, _aureliaTemplating.BoundViewFactory, _aureliaTemplating.TargetInstruction, _aureliaTemplating.ViewSlot, _aureliaBinding.ObserverLocator, _scrollHandler.ScrollHandler, _virtualRepeatStrategyLocator.VirtualRepeatStrategyLocator, _domStrategy.DomStrategyLocator)(VirtualRepeat) || VirtualRepeat;
   VirtualRepeat = _aureliaTemplating.templateController(VirtualRepeat) || VirtualRepeat;
   VirtualRepeat = _aureliaTemplating.customAttribute('virtual-repeat')(VirtualRepeat) || VirtualRepeat;
   return VirtualRepeat;

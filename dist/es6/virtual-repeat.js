@@ -31,14 +31,15 @@ import {
   moveViewLast
 } from './utilities';
 import {VirtualRepeatStrategyLocator} from './virtual-repeat-strategy-locator';
+import {DomStrategyLocator} from './dom-strategy';
 
 @customAttribute('virtual-repeat')
 @templateController
-@inject(Element, BoundViewFactory, TargetInstruction, ViewSlot, ObserverLocator, ScrollHandler, VirtualRepeatStrategyLocator)
+@inject(Element, BoundViewFactory, TargetInstruction, ViewSlot, ObserverLocator, ScrollHandler, VirtualRepeatStrategyLocator, DomStrategyLocator)
 export class VirtualRepeat {
   @bindable items
   @bindable local
-  constructor(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator){
+  constructor(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator, domStrategyLocator){
     this.element = element;
     this.viewFactory = viewFactory;
     this.instruction = instruction;
@@ -46,6 +47,7 @@ export class VirtualRepeat {
     this.observerLocator = observerLocator;
     this.scrollHandler = scrollHandler;
     this.strategyLocator = strategyLocator;
+    this.domStrategyLocator = domStrategyLocator;
     this.local = 'item';
     this.useEase = false;
     this.targetY = 0;
@@ -62,8 +64,13 @@ export class VirtualRepeat {
 
   attached(){
     this.isAttached = true;
-    this.virtualScrollInner = this.element.parentNode;
-    this.virtualScroll = this.virtualScrollInner.parentElement;
+
+    let element = this.element;
+
+    this.domStrategy = this.domStrategyLocator.getStrategy(element);
+    this.virtualScrollInner = this.domStrategy.getScrollElement(element);
+
+    this.virtualScroll = this.domStrategy.getWrapperElement(element);
     this.virtualScroll.style.overflow = 'hidden';
     this.virtualScroll.tabIndex = '-1';
 
@@ -76,6 +83,7 @@ export class VirtualRepeat {
     });
 
     this.itemsChanged();
+    this.scroll();
   }
 
   bind(bindingContext, overrideContext){
@@ -91,7 +99,7 @@ export class VirtualRepeat {
 
   detached() {
     this.isAttached = false;
-    this._destroyScrollIndicator();
+    this._removeScrollIndicator();
     this.virtualScrollInner = null;
     this.virtualScroll = null;
     this.numberOfDomElements = null;
@@ -116,7 +124,6 @@ export class VirtualRepeat {
       return;
     }
 
-    // TODO Skip if already created and list height is same
     this._createScrollIndicator();
 
     let items = this.items;
@@ -131,9 +138,6 @@ export class VirtualRepeat {
     this.strategy.instanceChanged(this, items, this.numberOfDomElements);
     this._calcScrollViewHeight();
     this._calcIndicatorHeight();
-
-    // TODO Call this on scrolling
-    this.scroll();
   }
 
   unbind(){
@@ -167,14 +171,10 @@ export class VirtualRepeat {
       return;
     }
 
-    var scrollView = this.virtualScrollInner,
-      childNodes = scrollView.childNodes,
-      itemHeight = this.itemHeight,
-      items = this.items,
-      viewSlot = this.viewSlot,
-      numberOfDomElements =  this.numberOfDomElements,
-      ease = this.useEase ? 0.1 : 1,
-      element, viewStart, viewEnd, marginTop, translateStyle, view, first;
+    let itemHeight = this.itemHeight;
+    let items = this.items;
+    let ease = this.useEase ? 0.1 : 1;
+    let first;
 
     this.currentY += (this.targetY - this.currentY) * ease;
     this.currentY = Math.round(this.currentY);
@@ -183,60 +183,41 @@ export class VirtualRepeat {
       requestAnimationFrame(() => this.scroll());
       return;
     }
-
     this.previousY = this.currentY;
     first = this.first = Math.ceil(this.currentY / itemHeight) * -1;
 
-    if(first > this.previousFirst && first + numberOfDomElements - 1 <= items.length){
-      this.previousFirst = first;
-
-      view = viewSlot.children[0];
-      updateOverrideContext(view.overrideContext, first + numberOfDomElements - 1, items.length);
-      view.bindingContext[this.local] = items[first + numberOfDomElements - 1];
-      viewSlot.children.push(viewSlot.children.shift());
-
-      moveViewLast(view, scrollView, numberOfDomElements);
-
-      marginTop = itemHeight * first + "px";
-      scrollView.style.marginTop = marginTop;
-    }else if (first < this.previousFirst && !Object.is(first, -0)){
-      this.previousFirst = first;
-
-      view = viewSlot.children[numberOfDomElements - 1];
-      if(view) {
-        view.bindingContext[this.local] = items[first];
-        updateOverrideContext(view.overrideContext, first, items.length);
-        viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
-
-        moveViewFirst(view, scrollView);
-
-        marginTop = itemHeight * first + "px";
-        scrollView.style.marginTop = marginTop;
+    if (this._isScrollingDown(first, this.previousFirst, items)){
+      if ((first - this.previousFirst) > 1) {
+        first = this.first = this.previousFirst + 1;
+        this.currentY = this.currentY + itemHeight;
       }
+      this.previousFirst = first;
+      this._rebindAndMoveToBottom();
+    } else if (this._isScrollingUp(first, this.previousFirst)){
+      if ((this.previousFirst - first) > 1) {
+        first = this.first = this.previousFirst - 1;
+        this.currentY = this.currentY - itemHeight;
+      }
+      this.previousFirst = first;
+      this._rebindAndMoveToTop();
     }
 
-    translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
-    scrollView.style.webkitTransform = translateStyle;
-    scrollView.style.msTransform = translateStyle;
-    scrollView.style.transform = translateStyle;
-
-    // TODO make scroll indicator optional
+    this._animateViews();
     this.scrollIndicator();
-
     requestAnimationFrame(() => this.scroll());
   }
 
   scrollIndicator(){
-    if(!this.indicator) {
+    if (!this.indicator) {
       return;
     }
 
     var scrolledPercentage, indicatorTranslateStyle;
 
-    scrolledPercentage = (-this.currentY) / ((this.items.length * this.itemHeight) - this.virtualScrollHeight);
+    scrolledPercentage = -this.currentY / (this.items.length * this.itemHeight - this.virtualScrollHeight);
     this.indicatorY = (this.virtualScrollHeight - this.indicatorHeight) * scrolledPercentage;
 
-    indicatorTranslateStyle = "translate3d(0px," + this.indicatorY  + "px,0px)";
+    indicatorTranslateStyle = "translate3d(0px," + this.indicatorY + "px,0px)";
     this.indicator.style.webkitTransform = indicatorTranslateStyle;
     this.indicator.style.msTransform = indicatorTranslateStyle;
     this.indicator.style.transform = indicatorTranslateStyle;
@@ -265,6 +246,22 @@ export class VirtualRepeat {
       // the items property, which will trigger the self-subscriber to call itemsChanged.
       this.items = newItems;
     }
+  }
+
+  _animateViews() {
+    let translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
+    let virtualScrollInner = this.virtualScrollInner;
+    virtualScrollInner.style.webkitTransform = translateStyle;
+    virtualScrollInner.style.msTransform = translateStyle;
+    virtualScrollInner.style.transform = translateStyle;
+  }
+
+  _isScrollingDown(first, previousFirst, items) {
+     return first > previousFirst && first + this.viewSlot.children.length - 1 <= items.length
+  }
+
+  _isScrollingUp(first, previousFirst) {
+    return first < previousFirst;
   }
 
   _unsubscribeCollection() {
@@ -305,9 +302,14 @@ export class VirtualRepeat {
   }
 
   _createScrollIndicator(){
+    if(this.indicator) {
+      return;
+    }
     var indicator;
     indicator = this.indicator = document.createElement('div');
+
     this.virtualScroll.appendChild(this.indicator);
+
     indicator.classList.add('au-scroll-indicator');
     indicator.style.backgroundColor = '#cccccc';
     indicator.style.top = '0px';
@@ -317,14 +319,50 @@ export class VirtualRepeat {
     indicator.style.opacity = '0.6'
   }
 
-  _destroyScrollIndicator() {
+  _removeScrollIndicator() {
     if (this.virtualScroll && this.indicator) {
       this.virtualScroll.removeChild(this.indicator);
       this.indicator = null;
     }
   }
 
+  _rebindAndMoveToBottom(){
+    let first = this.first;
+    let viewSlot = this.viewSlot;
+    let childrenLength = viewSlot.children.length;
+    let items = this.items;
+    let virtualScrollInner = this.virtualScrollInner;
+    let view = viewSlot.children[0];
+    let index = first + childrenLength - 1;
+    updateOverrideContext(view.overrideContext, index, items.length);
+    view.bindingContext[this.local] = items[index];
+    viewSlot.children.push(viewSlot.children.shift());
+    this.domStrategy.moveViewLast(view, virtualScrollInner, childrenLength);
+    let marginTop = -this.currentY + "px";
+    virtualScrollInner.style.marginTop = marginTop;
+  }
+
+  _rebindAndMoveToTop() {
+    let first = this.first;
+    let viewSlot = this.viewSlot;
+    let childrenLength = viewSlot.children.length;
+    let items = this.items;
+    let virtualScrollInner = this.virtualScrollInner;
+    let view = viewSlot.children[childrenLength - 1];
+    if(view) {
+      view.bindingContext[this.local] = items[first];
+      updateOverrideContext(view.overrideContext, first, items.length);
+      viewSlot.children.unshift(viewSlot.children.splice(-1,1)[0]);
+      this.domStrategy.moveViewFirst(view, virtualScrollInner);
+      let marginTop = -this.currentY + "px";
+      virtualScrollInner.style.marginTop = marginTop;
+    }
+  }
+
   _calcInitialHeights() {
+    if (this.numberOfDomElements > 0) {
+      return;
+    }
     let listItems = this.virtualScrollInner.children;
     this.itemHeight = calcOuterHeight(listItems[0]);
     this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);

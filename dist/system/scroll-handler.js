@@ -44,6 +44,16 @@ System.register(['aurelia-framework'], function (_export) {
           this.keyDownListener = function (e) {
             return _this.keyDown(e);
           };
+
+          this.mouseDownListener = function (e) {
+            return _this.touchStart(e);
+          };
+          this.mouseMoveListener = function (e) {
+            return _this.touchMove(e);
+          };
+          this.mouseUpListener = function (e) {
+            return _this.touchEnd(e);
+          };
         }
 
         ScrollHandler.prototype.initialize = function initialize(view, listener) {
@@ -56,6 +66,10 @@ System.register(['aurelia-framework'], function (_export) {
 
           if (this.hasMouseWheelEvent) {
             view.addEventListener("mousewheel", this.mouseWheelListener);
+
+            view.addEventListener('mousedown', this.mouseDownListener);
+            view.addEventListener('mousemove', this.mouseMoveListener);
+            view.addEventListener('mouseup', this.mouseUpListener);
           }
 
           if (typeof window.ontouchstart !== 'undefined') {
@@ -80,6 +94,10 @@ System.register(['aurelia-framework'], function (_export) {
             this.view.removeEventListener("touchmove", this.touchMoveListener);
             this.view.removeEventListener("touchend", this.touchEndListener);
             this.view.removeEventListener("keydown", this.keyDownListener);
+
+            this.view.removeEventListener("mousedown", this.touchStartListener);
+            this.view.removeEventListener("mousemove", this.touchMoveListener);
+            this.view.removeEventListener("mouseup", this.touchEndListener);
           }
         };
 

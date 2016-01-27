@@ -1,7 +1,7 @@
-System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-templating', 'aurelia-templating-resources/repeat-utilities', 'aurelia-templating-resources/analyze-view-factory', './scroll-handler', './utilities', './virtual-repeat-strategy-locator'], function (_export) {
+System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-templating', 'aurelia-templating-resources/repeat-utilities', 'aurelia-templating-resources/analyze-view-factory', './scroll-handler', './utilities', './virtual-repeat-strategy-locator', './dom-strategy'], function (_export) {
   'use strict';
 
-  var inject, ObserverLocator, calcSplices, getChangeRecords, createOverrideContext, BoundViewFactory, ViewSlot, TargetInstruction, customAttribute, bindable, templateController, updateOverrideContext, createFullOverrideContext, updateOverrideContexts, getItemsSourceExpression, isOneTime, unwrapExpression, viewsRequireLifecycle, ScrollHandler, calcScrollHeight, calcOuterHeight, getNthNode, moveViewFirst, moveViewLast, VirtualRepeatStrategyLocator, VirtualRepeat;
+  var inject, ObserverLocator, calcSplices, getChangeRecords, createOverrideContext, BoundViewFactory, ViewSlot, TargetInstruction, customAttribute, bindable, templateController, updateOverrideContext, createFullOverrideContext, updateOverrideContexts, getItemsSourceExpression, isOneTime, unwrapExpression, viewsRequireLifecycle, ScrollHandler, calcScrollHeight, calcOuterHeight, getNthNode, moveViewFirst, moveViewLast, VirtualRepeatStrategyLocator, DomStrategyLocator, VirtualRepeat;
 
   var _createDecoratedClass = (function () { function defineProperties(target, descriptors, initializers) { for (var i = 0; i < descriptors.length; i++) { var descriptor = descriptors[i]; var decorators = descriptor.decorators; var key = descriptor.key; delete descriptor.key; delete descriptor.decorators; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor || descriptor.initializer) descriptor.writable = true; if (decorators) { for (var f = 0; f < decorators.length; f++) { var decorator = decorators[f]; if (typeof decorator === 'function') { descriptor = decorator(target, key, descriptor) || descriptor; } else { throw new TypeError('The decorator for method ' + descriptor.key + ' is of the invalid type ' + typeof decorator); } } if (descriptor.initializer !== undefined) { initializers[key] = descriptor; continue; } } Object.defineProperty(target, key, descriptor); } } return function (Constructor, protoProps, staticProps, protoInitializers, staticInitializers) { if (protoProps) defineProperties(Constructor.prototype, protoProps, protoInitializers); if (staticProps) defineProperties(Constructor, staticProps, staticInitializers); return Constructor; }; })();
 
@@ -43,6 +43,8 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
       moveViewLast = _utilities.moveViewLast;
     }, function (_virtualRepeatStrategyLocator) {
       VirtualRepeatStrategyLocator = _virtualRepeatStrategyLocator.VirtualRepeatStrategyLocator;
+    }, function (_domStrategy) {
+      DomStrategyLocator = _domStrategy.DomStrategyLocator;
     }],
     execute: function () {
       VirtualRepeat = (function () {
@@ -60,7 +62,7 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           enumerable: true
         }], null, _instanceInitializers);
 
-        function VirtualRepeat(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator) {
+        function VirtualRepeat(element, viewFactory, instruction, viewSlot, observerLocator, scrollHandler, strategyLocator, domStrategyLocator) {
           _classCallCheck(this, _VirtualRepeat);
 
           _defineDecoratedPropertyDescriptor(this, 'items', _instanceInitializers);
@@ -74,6 +76,7 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           this.observerLocator = observerLocator;
           this.scrollHandler = scrollHandler;
           this.strategyLocator = strategyLocator;
+          this.domStrategyLocator = domStrategyLocator;
           this.local = 'item';
           this.useEase = false;
           this.targetY = 0;
@@ -92,8 +95,13 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           var _this = this;
 
           this.isAttached = true;
-          this.virtualScrollInner = this.element.parentNode;
-          this.virtualScroll = this.virtualScrollInner.parentElement;
+
+          var element = this.element;
+
+          this.domStrategy = this.domStrategyLocator.getStrategy(element);
+          this.virtualScrollInner = this.domStrategy.getScrollElement(element);
+
+          this.virtualScroll = this.domStrategy.getWrapperElement(element);
           this.virtualScroll.style.overflow = 'hidden';
           this.virtualScroll.tabIndex = '-1';
 
@@ -106,6 +114,7 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           });
 
           this.itemsChanged();
+          this.scroll();
         };
 
         VirtualRepeat.prototype.bind = function bind(bindingContext, overrideContext) {
@@ -124,7 +133,7 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
 
         VirtualRepeat.prototype.detached = function detached() {
           this.isAttached = false;
-          this._destroyScrollIndicator();
+          this._removeScrollIndicator();
           this.virtualScrollInner = null;
           this.virtualScroll = null;
           this.numberOfDomElements = null;
@@ -162,8 +171,6 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           this.strategy.instanceChanged(this, items, this.numberOfDomElements);
           this._calcScrollViewHeight();
           this._calcIndicatorHeight();
-
-          this.scroll();
         };
 
         VirtualRepeat.prototype.unbind = function unbind() {
@@ -201,20 +208,10 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
             return;
           }
 
-          var scrollView = this.virtualScrollInner,
-              childNodes = scrollView.childNodes,
-              itemHeight = this.itemHeight,
-              items = this.items,
-              viewSlot = this.viewSlot,
-              numberOfDomElements = this.numberOfDomElements,
-              ease = this.useEase ? 0.1 : 1,
-              element,
-              viewStart,
-              viewEnd,
-              marginTop,
-              translateStyle,
-              view,
-              first;
+          var itemHeight = this.itemHeight;
+          var items = this.items;
+          var ease = this.useEase ? 0.1 : 1;
+          var first = undefined;
 
           this.currentY += (this.targetY - this.currentY) * ease;
           this.currentY = Math.round(this.currentY);
@@ -225,45 +222,27 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
             });
             return;
           }
-
           this.previousY = this.currentY;
           first = this.first = Math.ceil(this.currentY / itemHeight) * -1;
 
-          if (first > this.previousFirst && first + numberOfDomElements - 1 <= items.length) {
-            this.previousFirst = first;
-
-            view = viewSlot.children[0];
-            updateOverrideContext(view.overrideContext, first + numberOfDomElements - 1, items.length);
-            view.bindingContext[this.local] = items[first + numberOfDomElements - 1];
-            viewSlot.children.push(viewSlot.children.shift());
-
-            moveViewLast(view, scrollView, numberOfDomElements);
-
-            marginTop = itemHeight * first + "px";
-            scrollView.style.marginTop = marginTop;
-          } else if (first < this.previousFirst && !Object.is(first, -0)) {
-            this.previousFirst = first;
-
-            view = viewSlot.children[numberOfDomElements - 1];
-            if (view) {
-              view.bindingContext[this.local] = items[first];
-              updateOverrideContext(view.overrideContext, first, items.length);
-              viewSlot.children.unshift(viewSlot.children.splice(-1, 1)[0]);
-
-              moveViewFirst(view, scrollView);
-
-              marginTop = itemHeight * first + "px";
-              scrollView.style.marginTop = marginTop;
+          if (this._isScrollingDown(first, this.previousFirst, items)) {
+            if (first - this.previousFirst > 1) {
+              first = this.first = this.previousFirst + 1;
+              this.currentY = this.currentY + itemHeight;
             }
+            this.previousFirst = first;
+            this._rebindAndMoveToBottom();
+          } else if (this._isScrollingUp(first, this.previousFirst)) {
+            if (this.previousFirst - first > 1) {
+              first = this.first = this.previousFirst - 1;
+              this.currentY = this.currentY - itemHeight;
+            }
+            this.previousFirst = first;
+            this._rebindAndMoveToTop();
           }
 
-          translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
-          scrollView.style.webkitTransform = translateStyle;
-          scrollView.style.msTransform = translateStyle;
-          scrollView.style.transform = translateStyle;
-
+          this._animateViews();
           this.scrollIndicator();
-
           requestAnimationFrame(function () {
             return _this3.scroll();
           });
@@ -308,6 +287,22 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           }
         };
 
+        VirtualRepeat.prototype._animateViews = function _animateViews() {
+          var translateStyle = "translate3d(0px," + this.currentY + "px,0px)";
+          var virtualScrollInner = this.virtualScrollInner;
+          virtualScrollInner.style.webkitTransform = translateStyle;
+          virtualScrollInner.style.msTransform = translateStyle;
+          virtualScrollInner.style.transform = translateStyle;
+        };
+
+        VirtualRepeat.prototype._isScrollingDown = function _isScrollingDown(first, previousFirst, items) {
+          return first > previousFirst && first + this.viewSlot.children.length - 1 <= items.length;
+        };
+
+        VirtualRepeat.prototype._isScrollingUp = function _isScrollingUp(first, previousFirst) {
+          return first < previousFirst;
+        };
+
         VirtualRepeat.prototype._unsubscribeCollection = function _unsubscribeCollection() {
           if (this.collectionObserver) {
             this.collectionObserver.unsubscribe(this.callContext, this);
@@ -346,9 +341,14 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
         };
 
         VirtualRepeat.prototype._createScrollIndicator = function _createScrollIndicator() {
+          if (this.indicator) {
+            return;
+          }
           var indicator;
           indicator = this.indicator = document.createElement('div');
+
           this.virtualScroll.appendChild(this.indicator);
+
           indicator.classList.add('au-scroll-indicator');
           indicator.style.backgroundColor = '#cccccc';
           indicator.style.top = '0px';
@@ -358,14 +358,50 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
           indicator.style.opacity = '0.6';
         };
 
-        VirtualRepeat.prototype._destroyScrollIndicator = function _destroyScrollIndicator() {
+        VirtualRepeat.prototype._removeScrollIndicator = function _removeScrollIndicator() {
           if (this.virtualScroll && this.indicator) {
             this.virtualScroll.removeChild(this.indicator);
             this.indicator = null;
           }
         };
 
+        VirtualRepeat.prototype._rebindAndMoveToBottom = function _rebindAndMoveToBottom() {
+          var first = this.first;
+          var viewSlot = this.viewSlot;
+          var childrenLength = viewSlot.children.length;
+          var items = this.items;
+          var virtualScrollInner = this.virtualScrollInner;
+          var view = viewSlot.children[0];
+          var index = first + childrenLength - 1;
+          updateOverrideContext(view.overrideContext, index, items.length);
+          view.bindingContext[this.local] = items[index];
+          viewSlot.children.push(viewSlot.children.shift());
+          this.domStrategy.moveViewLast(view, virtualScrollInner, childrenLength);
+          var marginTop = -this.currentY + "px";
+          virtualScrollInner.style.marginTop = marginTop;
+        };
+
+        VirtualRepeat.prototype._rebindAndMoveToTop = function _rebindAndMoveToTop() {
+          var first = this.first;
+          var viewSlot = this.viewSlot;
+          var childrenLength = viewSlot.children.length;
+          var items = this.items;
+          var virtualScrollInner = this.virtualScrollInner;
+          var view = viewSlot.children[childrenLength - 1];
+          if (view) {
+            view.bindingContext[this.local] = items[first];
+            updateOverrideContext(view.overrideContext, first, items.length);
+            viewSlot.children.unshift(viewSlot.children.splice(-1, 1)[0]);
+            this.domStrategy.moveViewFirst(view, virtualScrollInner);
+            var marginTop = -this.currentY + "px";
+            virtualScrollInner.style.marginTop = marginTop;
+          }
+        };
+
         VirtualRepeat.prototype._calcInitialHeights = function _calcInitialHeights() {
+          if (this.numberOfDomElements > 0) {
+            return;
+          }
           var listItems = this.virtualScrollInner.children;
           this.itemHeight = calcOuterHeight(listItems[0]);
           this.virtualScrollHeight = calcScrollHeight(this.virtualScroll);
@@ -405,7 +441,7 @@ System.register(['aurelia-dependency-injection', 'aurelia-binding', 'aurelia-tem
         };
 
         var _VirtualRepeat = VirtualRepeat;
-        VirtualRepeat = inject(Element, BoundViewFactory, TargetInstruction, ViewSlot, ObserverLocator, ScrollHandler, VirtualRepeatStrategyLocator)(VirtualRepeat) || VirtualRepeat;
+        VirtualRepeat = inject(Element, BoundViewFactory, TargetInstruction, ViewSlot, ObserverLocator, ScrollHandler, VirtualRepeatStrategyLocator, DomStrategyLocator)(VirtualRepeat) || VirtualRepeat;
         VirtualRepeat = templateController(VirtualRepeat) || VirtualRepeat;
         VirtualRepeat = customAttribute('virtual-repeat')(VirtualRepeat) || VirtualRepeat;
         return VirtualRepeat;
